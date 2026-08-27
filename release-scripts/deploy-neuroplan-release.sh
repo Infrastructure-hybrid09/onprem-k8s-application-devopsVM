@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="${VERSION:-0.4.0}"
+VERSION="${VERSION:-0.5.0}"
 ARCHIVE="${1:-$HOME/releases/neuroplan-login-mvp-${VERSION}-bundle.zip}"
 PROJECT_ROOT="${PROJECT_ROOT:-$HOME/onprem-k8s}"
 NAMESPACE="${NAMESPACE:-application}"
@@ -46,15 +46,15 @@ UI_SOURCE="$WORK_DIR/neuroplan-ui-mockup"
 [[ -f "$MVP_SOURCE/scripts/01-build-push.sh" ]] || fail "build script missing from archive"
 [[ -f "$UI_SOURCE/mvp-main.html" ]] || fail "UI entry file missing from archive"
 
-grep -Fq '<version>0.4.0</version>' "$MVP_SOURCE/backend/pom.xml" || \
-  fail "backend version is not 0.4.0"
-grep -Fq 'VERSION="${VERSION:-0.4.0}"' "$MVP_SOURCE/scripts/01-build-push.sh" || \
-  fail "build script version is not 0.4.0"
-grep -Fq '192.168.34.21:5000/neuroplan/frontend:0.4.0' \
-  "$MVP_SOURCE/k8s/base/10-workloads.yaml" || fail "frontend image tag is not 0.4.0"
-grep -Fq '192.168.34.21:5000/neuroplan/backend:0.4.0' \
-  "$MVP_SOURCE/k8s/base/10-workloads.yaml" || fail "backend image tag is not 0.4.0"
-echo "[PASS] NeuroPlan release 0.4.0 validated"
+grep -Fq '<version>0.5.0</version>' "$MVP_SOURCE/backend/pom.xml" || \
+  fail "backend version is not 0.5.0"
+grep -Fq 'VERSION="${VERSION:-0.5.0}"' "$MVP_SOURCE/scripts/01-build-push.sh" || \
+  fail "build script version is not 0.5.0"
+grep -Fq '192.168.34.21:5000/neuroplan/frontend:0.5.0' \
+  "$MVP_SOURCE/k8s/base/10-workloads.yaml" || fail "frontend image tag is not 0.5.0"
+grep -Fq '192.168.34.21:5000/neuroplan/backend:0.5.0' \
+  "$MVP_SOURCE/k8s/base/10-workloads.yaml" || fail "backend image tag is not 0.5.0"
+echo "[PASS] NeuroPlan release 0.5.0 validated"
 
 echo "===== 2. Create a recoverable source backup ====="
 mkdir -p "$BACKUP_DIR" "$STAGE_DIR"

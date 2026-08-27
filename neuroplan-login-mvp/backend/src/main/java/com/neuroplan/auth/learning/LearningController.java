@@ -3,6 +3,7 @@ package com.neuroplan.auth.learning;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.sql.Timestamp;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -74,6 +75,52 @@ public class LearningController {
                 ? null
                 : latestDiagnosis(user.id(), profile.getFirst().subjectId());
         return new LearningStateResponse(profile, plan, stats, diagnosis);
+    }
+
+    @GetMapping("/dashboard")
+    public DashboardResponse dashboard(
+            @RequestParam(defaultValue = "28") int days,
+            HttpServletRequest request
+    ) {
+        UserRecord user = currentUserService.require(request);
+        if (days < 7 || days > 90) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "대시보드 조회 기간은 7일 이상 90일 이하여야 합니다.");
+        }
+        return new DashboardResponse(
+                weeklySummary(user.id()),
+                studyDailyStats(user.id(), days),
+                subjectAccuracy(user.id()),
+                learningStreak(user.id()),
+                unresolvedWrongNoteCount(user.id())
+        );
+    }
+
+    @GetMapping("/wrong-notes")
+    public List<WrongNoteResponse> wrongNotes(HttpServletRequest request) {
+        UserRecord user = currentUserService.require(request);
+        return wrongNotesFor(user.id());
+    }
+
+    @PatchMapping("/wrong-notes/{questionId}/relearn")
+    @Transactional
+    public WrongNoteResponse markWrongNoteRelearned(
+            @PathVariable long questionId,
+            HttpServletRequest request
+    ) {
+        UserRecord user = currentUserService.require(request);
+        int changed = jdbcTemplate.update("""
+                UPDATE wrong_notes
+                   SET is_relearned = TRUE,
+                       relearned_at = CURRENT_TIMESTAMP(6)
+                 WHERE user_id = ? AND question_id = ?
+                """, user.id(), questionId);
+        if (changed == 0) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "오답 노트를 찾을 수 없습니다.");
+        }
+        return wrongNotesFor(user.id()).stream()
+                .filter(note -> note.questionId() == questionId)
+                .findFirst()
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "오답 노트를 찾을 수 없습니다."));
     }
 
     @PutMapping("/profile")
@@ -434,6 +481,115 @@ public class LearningController {
         ), userId).stream().findFirst().orElse(new TodayStatsResponse(0, 0, 0));
     }
 
+    private WeeklySummaryResponse weeklySummary(long userId) {
+        return jdbcTemplate.query("""
+                SELECT COALESCE(SUM(solved_count), 0) AS solved_count,
+                       COALESCE(SUM(correct_count), 0) AS correct_count,
+                       COALESCE(SUM(completed_step_count), 0) AS completed_step_count
+                  FROM study_daily_stats
+                 WHERE user_id = ?
+                   AND study_date BETWEEN DATE_SUB(CURRENT_DATE, INTERVAL 6 DAY) AND CURRENT_DATE
+                """, (rs, rowNum) -> new WeeklySummaryResponse(
+                rs.getInt("solved_count"),
+                rs.getInt("correct_count"),
+                rs.getInt("completed_step_count")
+        ), userId).stream().findFirst().orElse(new WeeklySummaryResponse(0, 0, 0));
+    }
+
+    private List<DailyStatResponse> studyDailyStats(long userId, int days) {
+        LocalDate startDate = LocalDate.now().minusDays(days - 1L);
+        return jdbcTemplate.query("""
+                SELECT study_date, solved_count, correct_count, completed_step_count
+                  FROM study_daily_stats
+                 WHERE user_id = ? AND study_date >= ?
+                 ORDER BY study_date
+                """, (rs, rowNum) -> new DailyStatResponse(
+                rs.getDate("study_date").toLocalDate(),
+                rs.getInt("solved_count"),
+                rs.getInt("correct_count"),
+                rs.getInt("completed_step_count")
+        ), userId, startDate);
+    }
+
+    private List<SubjectAccuracyResponse> subjectAccuracy(long userId) {
+        return jdbcTemplate.query("""
+                SELECT s.code, s.name,
+                       COUNT(da.id) AS attempt_count,
+                       COALESCE(SUM(da.total_questions), 0) AS solved_count,
+                       COALESCE(SUM(da.correct_answers), 0) AS correct_count
+                  FROM diagnosis_attempts da
+                  JOIN subjects s ON s.id = da.subject_id
+                 WHERE da.user_id = ? AND da.attempt_status = 'COMPLETED'
+                 GROUP BY s.id, s.code, s.name
+                 ORDER BY solved_count DESC, s.name
+                """, (rs, rowNum) -> new SubjectAccuracyResponse(
+                rs.getString("code"),
+                rs.getString("name"),
+                rs.getInt("attempt_count"),
+                rs.getInt("solved_count"),
+                rs.getInt("correct_count")
+        ), userId);
+    }
+
+    private int learningStreak(long userId) {
+        List<LocalDate> activeDates = jdbcTemplate.query("""
+                SELECT study_date
+                  FROM study_daily_stats
+                 WHERE user_id = ?
+                   AND (solved_count > 0 OR completed_step_count > 0)
+                   AND study_date <= CURRENT_DATE
+                 ORDER BY study_date DESC
+                """, (rs, rowNum) -> rs.getDate("study_date").toLocalDate(), userId);
+        int streak = 0;
+        LocalDate expected = LocalDate.now();
+        for (LocalDate date : activeDates) {
+            if (!date.equals(expected)) break;
+            streak++;
+            expected = expected.minusDays(1);
+        }
+        return streak;
+    }
+
+    private int unresolvedWrongNoteCount(long userId) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM wrong_notes
+                 WHERE user_id = ? AND is_relearned = FALSE
+                """, Integer.class, userId);
+        return count == null ? 0 : count;
+    }
+
+    private List<WrongNoteResponse> wrongNotesFor(long userId) {
+        return jdbcTemplate.query("""
+                SELECT wn.question_id, s.code AS subject_code, s.name AS subject_name,
+                       q.question_text, q.explanation,
+                       wn.wrong_count, wn.is_relearned, wn.last_wrong_at, wn.relearned_at,
+                       selected.option_text AS selected_option_text,
+                       correct.option_text AS correct_option_text
+                  FROM wrong_notes wn
+                  JOIN diagnosis_questions q ON q.id = wn.question_id
+                  JOIN subjects s ON s.id = q.subject_id
+             LEFT JOIN diagnosis_answers da
+                    ON da.attempt_id = wn.last_attempt_id AND da.question_id = wn.question_id
+             LEFT JOIN question_options selected ON selected.id = da.selected_option_id
+                  JOIN question_options correct
+                    ON correct.question_id = q.id AND correct.is_correct = TRUE
+                 WHERE wn.user_id = ?
+                 ORDER BY wn.is_relearned ASC, wn.last_wrong_at DESC, wn.question_id
+                """, (rs, rowNum) -> new WrongNoteResponse(
+                rs.getLong("question_id"),
+                rs.getString("subject_code"),
+                rs.getString("subject_name"),
+                rs.getString("question_text"),
+                rs.getString("explanation"),
+                rs.getString("selected_option_text"),
+                rs.getString("correct_option_text"),
+                rs.getInt("wrong_count"),
+                rs.getBoolean("is_relearned"),
+                rs.getTimestamp("last_wrong_at").toLocalDateTime(),
+                rs.getTimestamp("relearned_at") == null ? null : rs.getTimestamp("relearned_at").toLocalDateTime()
+        ), userId);
+    }
+
     private DiagnosisSummaryResponse latestDiagnosis(long userId, long subjectId) {
         return jdbcTemplate.query("""
                 SELECT id, total_questions, correct_answers, completed_at
@@ -672,6 +828,45 @@ public class LearningController {
     public record StepUpdateRequest(boolean completed) {}
 
     public record TodayStatsResponse(int solvedCount, int correctCount, int completedStepCount) {}
+
+    public record DashboardResponse(
+            WeeklySummaryResponse weekly,
+            List<DailyStatResponse> dailyStats,
+            List<SubjectAccuracyResponse> subjectStats,
+            int streakDays,
+            int unresolvedWrongNotes
+    ) {}
+
+    public record WeeklySummaryResponse(int solvedCount, int correctCount, int completedStepCount) {}
+
+    public record DailyStatResponse(
+            LocalDate studyDate,
+            int solvedCount,
+            int correctCount,
+            int completedStepCount
+    ) {}
+
+    public record SubjectAccuracyResponse(
+            String subjectCode,
+            String subjectName,
+            int attemptCount,
+            int solvedCount,
+            int correctCount
+    ) {}
+
+    public record WrongNoteResponse(
+            long questionId,
+            String subjectCode,
+            String subjectName,
+            String questionText,
+            String explanation,
+            String selectedOptionText,
+            String correctOptionText,
+            int wrongCount,
+            boolean relearned,
+            LocalDateTime lastWrongAt,
+            LocalDateTime relearnedAt
+    ) {}
 
     public record DiagnosisSummaryResponse(
             long attemptId,

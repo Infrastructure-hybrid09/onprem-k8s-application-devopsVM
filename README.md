@@ -1,4 +1,6 @@
-# NeuroPlan 학습 MVP 0.4.0
+# NeuroPlan 학습 MVP 0.5.0
+
+> 릴리스 상태: 사설 Registry 등록, On-Prem Kubernetes 배포 및 기능 테스트 완료 (2026-08-27)
 
 회원가입부터 과목·수준 설정, 오늘 플랜, 3단계 완료, 5문제 진단, 오답·일별 통계까지 MariaDB에 저장하는 최소 학습 서비스입니다. On-Prem Kubernetes에서 먼저 실행한 뒤 ROSA/OpenShift로 옮길 수 있도록 Workload와 진입 리소스를 분리했습니다.
 
@@ -31,7 +33,7 @@ Client
 | 과목 목록·과목별 수준(최대 3개) | `subjects`, `user_subjects` |
 | 오늘의 플랜·3단계 완료 | `daily_plans`, `plan_steps` |
 | 5문제 진단·제출 답안 | `diagnosis_questions`, `question_options`, `diagnosis_attempts`, `diagnosis_answers` |
-| 오답 누적·대시보드 | `wrong_notes`, `study_daily_stats` |
+| 오답 누적·재학습 완료·상세 대시보드 | `wrong_notes`, `study_daily_stats`, `diagnosis_attempts` 집계 |
 | 관리자 요약·회원 상태 관리 | 위 테이블의 집계 조회, `users`, `jwt_sessions` |
 
 ### 인증 저장 원칙
@@ -43,6 +45,12 @@ Client
 - `created_at`, `updated_at`
 
 `LOCKED` 또는 `WITHDRAWN` 계정은 로그인과 기존 세션 사용이 모두 거부됩니다. 로그아웃 또는 Refresh Token 회전 시 기존 세션의 `revoked_at`이 기록됩니다.
+
+## 0.5.0 변경 사항
+
+- **오답 노트:** 오답 문제, 마지막 선택, 정답, 해설, 누적 오답 횟수를 조회하고 재학습 완료 상태를 저장합니다.
+- **상세 대시보드:** 최근 7일 풀이·정답률·연속 학습일, 최근 28일 활동 히트맵, 과목별 누적 정답률을 표시합니다.
+- 두 기능은 기존 학습 테이블의 데이터를 조회·갱신하며, 애플리케이션이 DB DDL을 실행하지 않는 원칙은 그대로 유지합니다.
 
 ## 디렉터리
 
@@ -126,8 +134,8 @@ cd ~/onprem-k8s
 이미지:
 
 ```text
-192.168.34.21:5000/neuroplan/frontend:0.4.0
-192.168.34.21:5000/neuroplan/backend:0.4.0
+192.168.34.21:5000/neuroplan/frontend:0.5.0
+192.168.34.21:5000/neuroplan/backend:0.5.0
 ```
 
 이미지는 기본 UID 1001을 선언하지만 Pod YAML에는 UID/GID를 고정하지 않습니다. Kubernetes에서는 비-root로 실행되고 ROSA에서는 SCC가 할당한 임의 UID로 실행됩니다.
@@ -293,8 +301,8 @@ NAMESPACE=neuroplan KUBE_CLI=oc ./scripts/00-create-db-secret.sh
 
 cd k8s/rosa
 kustomize edit set image \
-  192.168.34.21:5000/neuroplan/frontend:0.4.0=quay.io/ORG/neuroplan-frontend:0.4.0 \
-  192.168.34.21:5000/neuroplan/backend:0.4.0=quay.io/ORG/neuroplan-backend:0.4.0
+  192.168.34.21:5000/neuroplan/frontend:0.5.0=quay.io/ORG/neuroplan-frontend:0.5.0 \
+  192.168.34.21:5000/neuroplan/backend:0.5.0=quay.io/ORG/neuroplan-backend:0.5.0
 oc apply -k .
 ```
 

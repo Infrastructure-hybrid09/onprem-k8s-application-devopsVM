@@ -34,7 +34,12 @@
     quizFinished: false,
     quizCorrect: 0,
     quizTotal: 0,
-    stats: { solvedCount: 0, correctCount: 0, completedStepCount: 0 }
+    stats: { solvedCount: 0, correctCount: 0, completedStepCount: 0 },
+    dashboard: {
+      weekly: { solvedCount: 0, correctCount: 0, completedStepCount: 0 },
+      dailyStats: [], subjectStats: [], streakDays: 0, unresolvedWrongNotes: 0
+    },
+    wrongNotes: []
   };
   const fallbackQuestions = [
     {
@@ -102,7 +107,9 @@
         ...saved,
         subjectLevels: { ...(saved.subjectLevels || {}) },
         tasks: Array.isArray(saved.tasks) ? saved.tasks.slice(0, 3) : [false, false, false],
-        stats: { ...defaultState.stats, ...(saved.stats || {}) }
+        stats: { ...defaultState.stats, ...(saved.stats || {}) },
+        dashboard: { ...defaultState.dashboard, ...(saved.dashboard || {}) },
+        wrongNotes: Array.isArray(saved.wrongNotes) ? saved.wrongNotes : []
       };
     } catch (_) {
       return { ...defaultState, tasks: [false, false, false] };
@@ -294,9 +301,11 @@
   }
 
   async function loadLearningState() {
-    const [subjects, learning] = await Promise.all([
+    const [subjects, learning, dashboard, wrongNotes] = await Promise.all([
       apiRequest("/learning/subjects"),
-      apiRequest("/learning/state")
+      apiRequest("/learning/state"),
+      apiRequest("/learning/dashboard?days=28"),
+      apiRequest("/learning/wrong-notes")
     ]);
     subjectCatalog = subjects;
     applyProfile(learning.profile);
@@ -305,6 +314,8 @@
     state.quizFinished = Boolean(learning.diagnosis);
     state.quizCorrect = learning.diagnosis?.correctAnswers || 0;
     state.quizTotal = learning.diagnosis?.totalQuestions || 0;
+    state.dashboard = { ...defaultState.dashboard, ...(dashboard || {}) };
+    state.wrongNotes = Array.isArray(wrongNotes) ? wrongNotes : [];
     renderSubjectChoices();
   }
 
@@ -369,6 +380,52 @@
 
   function planProgress() {
     return Math.round((state.tasks.filter(Boolean).length / 3) * 100);
+  }
+
+  function renderDashboardDetails() {
+    const dashboard = { ...defaultState.dashboard, ...(state.dashboard || {}) };
+    const weekly = { ...defaultState.dashboard.weekly, ...(dashboard.weekly || {}) };
+    const accuracy = weekly.solvedCount
+      ? Math.round((weekly.correctCount / weekly.solvedCount) * 100)
+      : null;
+    $("#weeklySolved").textContent = String(weekly.solvedCount);
+    $("#weeklyAccuracy").textContent = accuracy === null ? "-" : `${accuracy}%`;
+    $("#streakDays").textContent = `${dashboard.streakDays || 0}일`;
+
+    const activityByDate = new Map((dashboard.dailyStats || []).map(item => [String(item.studyDate), item]));
+    const cells = Array.from({ length: 28 }, (_, index) => {
+      const date = new Date();
+      date.setHours(0, 0, 0, 0);
+      date.setDate(date.getDate() - (27 - index));
+      const key = date.toISOString().slice(0, 10);
+      const item = activityByDate.get(key);
+      const activity = (item?.solvedCount || 0) + (item?.completedStepCount || 0);
+      const level = activity >= 8 ? 3 : activity >= 4 ? 2 : activity > 0 ? 1 : 0;
+      const label = `${key}: 풀이 ${item?.solvedCount || 0}문제, 완료 ${item?.completedStepCount || 0}단계`;
+      return `<span class="heatmap-cell${level ? ` level-${level}` : ""}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"></span>`;
+    });
+    $("#studyHeatmap").innerHTML = cells.join("");
+
+    $("#subjectStatList").innerHTML = (dashboard.subjectStats || []).length
+      ? dashboard.subjectStats.map(item => {
+          const rate = item.solvedCount ? Math.round((item.correctCount / item.solvedCount) * 100) : 0;
+          return `<div class="subject-stat-row"><div><strong>${escapeHtml(item.subjectName)}</strong><div class="subject-stat-track"><span style="width:${rate}%"></span></div></div><em>${rate}%</em></div>`;
+        }).join("")
+      : '<span class="metric-caption">문제를 풀면 과목별 정답률이 나타납니다.</span>';
+  }
+
+  function renderWrongNotes() {
+    const notes = state.wrongNotes || [];
+    const pending = notes.filter(note => !note.relearned).length;
+    $("#wrongNoteCount").textContent = `미해결 ${pending}개`;
+    $("#wrongNoteList").innerHTML = notes.length
+      ? notes.map(note => `
+          <article class="wrong-note-item${note.relearned ? " relearned" : ""}">
+            <div class="wrong-note-top"><div><span class="wrong-note-subject">${escapeHtml(note.subjectName)} · 누적 오답 ${note.wrongCount}회</span><p class="wrong-note-question">${escapeHtml(note.questionText)}</p></div><span class="wrong-note-status${note.relearned ? "" : " pending"}">${note.relearned ? "재학습 완료" : "재학습 필요"}</span></div>
+            <p class="wrong-note-meta">내 답: ${escapeHtml(note.selectedOptionText || "기록 없음")} · 정답: ${escapeHtml(note.correctOptionText)}<br>해설: ${escapeHtml(note.explanation)}</p>
+            ${note.relearned ? "" : `<button class="button secondary small" type="button" data-relearn-question="${note.questionId}">재학습 완료로 표시</button>`}
+          </article>`).join("")
+      : '<div class="empty-state"><div><strong>아직 쌓인 오답 노트가 없어요.</strong><span>문제 풀이 후 오답이 자동으로 기록됩니다.</span></div></div>';
   }
 
   function updateUI() {
@@ -457,6 +514,9 @@
     else if (!tasksDone) $("#mainAction").textContent = "오늘 학습 이어하기";
     else if (!state.quizFinished) $("#mainAction").textContent = "확인 문제 풀기";
     else $("#mainAction").textContent = "오늘 학습 완료";
+
+    renderDashboardDetails();
+    renderWrongNotes();
   }
 
   function setAuthMode(mode) {
@@ -866,6 +926,32 @@
       });
       await loadAdminOverview();
       toast("회원 상태를 변경했습니다.");
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      action.disabled = false;
+    }
+  });
+
+  document.addEventListener("click", async event => {
+    const action = event.target.closest("[data-relearn-question]");
+    if (!action || !state.authenticated) return;
+    const questionId = Number(action.dataset.relearnQuestion);
+    if (!confirm("이 문제를 재학습 완료로 표시할까요?")) return;
+    action.disabled = true;
+    try {
+      if (apiConfig.enabled) {
+        await apiRequest(`/learning/wrong-notes/${questionId}/relearn`, { method: "PATCH" });
+        await loadLearningState();
+      } else {
+        state.wrongNotes = state.wrongNotes.map(note => note.questionId === questionId
+          ? { ...note, relearned: true, relearnedAt: new Date().toISOString() }
+          : note);
+        state.dashboard.unresolvedWrongNotes = state.wrongNotes.filter(note => !note.relearned).length;
+        saveState();
+      }
+      updateUI();
+      toast("재학습 완료 상태를 기록했습니다.");
     } catch (error) {
       toast(error.message);
     } finally {
