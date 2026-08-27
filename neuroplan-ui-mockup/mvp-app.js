@@ -23,6 +23,8 @@
   const defaultState = {
     authenticated: false,
     userName: "",
+    userEmail: "",
+    isAdmin: false,
     subjects: [],
     subjectLevels: {},
     planId: null,
@@ -90,6 +92,7 @@
   let chosenAnswer = null;
   let answerChecked = false;
   let toastTimer;
+  let adminOverview = null;
 
   function loadState() {
     try {
@@ -148,6 +151,99 @@
   function closeModal(id) {
     document.getElementById(id).hidden = true;
     if (id === "authModal") clearAuthFields();
+  }
+
+  function showLearningPage() {
+    $("#adminPage").hidden = true;
+    $("#dashboard").hidden = false;
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function loadAdminOverview() {
+    if (!state.isAdmin) return null;
+    adminOverview = apiConfig.enabled
+      ? await apiRequest("/admin/overview")
+      : {
+          adminUserId: 1,
+          adminEmail: state.userEmail,
+          users: { total: 1, active: 1, locked: 0, withdrawn: 0 },
+          activeSubjects: subjectCatalog.length,
+          todayPlans: state.planGenerated ? 1 : 0,
+          todayAttempts: state.quizFinished ? 1 : 0,
+          recentUsers: [{
+            id: 1, email: state.userEmail, nickname: state.userName,
+            accountStatus: "ACTIVE", subjectCount: state.subjects.length,
+            createdAt: new Date().toISOString(), lastSessionAt: new Date().toISOString()
+          }]
+        };
+    renderAdminOverview();
+    return adminOverview;
+  }
+
+  async function detectAdmin() {
+    if (!state.authenticated) {
+      state.isAdmin = false;
+      return;
+    }
+    if (!apiConfig.enabled) {
+      state.isAdmin = state.userEmail.toLowerCase() === "admin@nplan.local";
+      return;
+    }
+    try {
+      adminOverview = await apiRequest("/admin/overview");
+      state.isAdmin = true;
+    } catch (error) {
+      if (error.status !== 403) throw error;
+      state.isAdmin = false;
+      adminOverview = null;
+    }
+  }
+
+  function formatDateTime(value) {
+    if (!value) return "-";
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? escapeHtml(value) : parsed.toLocaleString("ko-KR", { dateStyle: "short", timeStyle: "short" });
+  }
+
+  function renderAdminOverview() {
+    if (!adminOverview) return;
+    $("#adminIdentity").textContent = `${adminOverview.adminEmail} 관리자 · 활성 과목 ${adminOverview.activeSubjects}개`;
+    $("#adminTotalUsers").textContent = String(adminOverview.users.total);
+    $("#adminActiveUsers").textContent = String(adminOverview.users.active);
+    $("#adminTodayPlans").textContent = String(adminOverview.todayPlans);
+    $("#adminTodayAttempts").textContent = String(adminOverview.todayAttempts);
+    $("#adminUsersBody").innerHTML = adminOverview.recentUsers.length
+      ? adminOverview.recentUsers.map(user => `
+          <tr>
+            <td><strong>${escapeHtml(user.nickname)}</strong><br><span>${escapeHtml(user.email)}</span></td>
+            <td><span class="account-badge ${user.accountStatus.toLowerCase()}">${escapeHtml(user.accountStatus)}</span></td>
+            <td>${user.subjectCount}</td>
+            <td>${escapeHtml(formatDateTime(user.createdAt))}</td>
+            <td>${escapeHtml(formatDateTime(user.lastSessionAt))}</td>
+            <td>${user.id === adminOverview.adminUserId
+              ? '<span class="account-badge active">현재 관리자</span>'
+              : `<div class="admin-user-actions">
+                  <button class="button secondary" type="button" data-admin-status="ACTIVE" data-user-id="${user.id}">활성</button>
+                  <button class="button secondary" type="button" data-admin-status="LOCKED" data-user-id="${user.id}">잠금</button>
+                  <button class="button secondary" type="button" data-admin-status="WITHDRAWN" data-user-id="${user.id}">탈퇴</button>
+                </div>`}</td>
+          </tr>`).join("")
+      : '<tr><td colspan="6">표시할 회원이 없습니다.</td></tr>';
+  }
+
+  async function openAdminPage() {
+    if (!state.isAdmin) return;
+    $("#adminButton").disabled = true;
+    try {
+      await loadAdminOverview();
+      $("#dashboard").hidden = true;
+      $("#adminPage").hidden = false;
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      $("#adminButton").disabled = false;
+    }
   }
 
   function toast(message) {
@@ -214,6 +310,7 @@
 
   async function restoreSession() {
     if (!apiConfig.enabled) {
+      await detectAdmin();
       renderSubjectChoices();
       updateUI();
       return;
@@ -222,7 +319,9 @@
       const payload = await apiRequest("/auth/me");
       state.authenticated = true;
       state.userName = payload.user.nickname;
+      state.userEmail = payload.user.email;
       await loadLearningState();
+      await detectAdmin();
     } catch (error) {
       if (error.status !== 401) toast(`서버 연결 확인이 필요합니다: ${error.message}`);
       state = { ...defaultState, tasks: [false, false, false] };
@@ -281,6 +380,8 @@
     $("#loginButton").hidden = state.authenticated;
     $("#signupButton").hidden = state.authenticated;
     $("#logoutButton").hidden = !state.authenticated;
+    $("#withdrawButton").hidden = !state.authenticated;
+    $("#adminButton").hidden = !state.authenticated || !state.isAdmin;
     $("#resetDemo").hidden = apiConfig.enabled;
     $("#userChip").hidden = !state.authenticated;
     if (state.authenticated) {
@@ -510,12 +611,15 @@
           body: JSON.stringify(authMode === "signup" ? { nickname: name, email, password } : { email, password })
         });
         state.userName = payload.user.nickname;
+        state.userEmail = payload.user.email;
       } else {
         state.userName = authMode === "signup" ? name : (state.userName || email.split("@")[0]);
+        state.userEmail = email.toLowerCase();
       }
       state.authenticated = true;
       if (apiConfig.enabled) await loadLearningState();
       else saveState();
+      await detectAdmin();
       closeModal("authModal");
       updateUI();
       toast(authMode === "signup" ? `${state.userName}님, 가입을 환영합니다!` : `${state.userName}님, 다시 만나 반가워요.`);
@@ -570,6 +674,52 @@
   $("#profileAction").addEventListener("click", openProfile);
   $("#loginButton").addEventListener("click", () => { setAuthMode("login"); openModal("authModal"); });
   $("#signupButton").addEventListener("click", () => { setAuthMode("signup"); openModal("authModal"); });
+  $("#adminButton").addEventListener("click", openAdminPage);
+  $("#adminBackButton").addEventListener("click", showLearningPage);
+  $("#adminRefresh").addEventListener("click", async () => {
+    try {
+      await loadAdminOverview();
+      toast("관리자 데이터를 새로고침했습니다.");
+    } catch (error) {
+      toast(error.message);
+    }
+  });
+  $("#homeBrand").addEventListener("click", event => {
+    event.preventDefault();
+    showLearningPage();
+  });
+  $("#withdrawButton").addEventListener("click", () => {
+    $("#withdrawForm").reset();
+    $("#withdrawMessage").textContent = "";
+    openModal("withdrawModal");
+  });
+
+  $("#withdrawForm").addEventListener("submit", async event => {
+    event.preventDefault();
+    const password = $("#withdrawPassword").value;
+    if (password.length < 8) {
+      $("#withdrawMessage").textContent = "현재 비밀번호를 8자 이상 입력해 주세요.";
+      return;
+    }
+    if (!confirm("정말 회원 탈퇴하시겠습니까? 이 계정은 다시 로그인할 수 없습니다.")) return;
+    $("#withdrawSubmit").disabled = true;
+    try {
+      if (apiConfig.enabled) {
+        await apiRequest("/auth/withdraw", { method: "POST", body: JSON.stringify({ password }) });
+      }
+      state = { ...defaultState, tasks: [false, false, false] };
+      localStorage.removeItem(storageKey);
+      adminOverview = null;
+      closeModal("withdrawModal");
+      showLearningPage();
+      updateUI();
+      toast("회원 탈퇴가 완료되었습니다.");
+    } catch (error) {
+      $("#withdrawMessage").textContent = error.message;
+    } finally {
+      $("#withdrawSubmit").disabled = false;
+    }
+  });
 
   $("#logoutButton").addEventListener("click", async () => {
     try {
@@ -578,8 +728,10 @@
       toast(`로그아웃 요청 확인이 필요합니다: ${error.message}`);
     } finally {
       state = { ...defaultState, tasks: [false, false, false] };
+      adminOverview = null;
       localStorage.removeItem(storageKey);
       clearAuthFields();
+      showLearningPage();
       updateUI();
       toast("로그아웃했습니다.");
     }
@@ -699,6 +851,26 @@
     if (event.key !== "Escape") return;
     const openBackdrop = $$(".modal-backdrop").find(backdrop => !backdrop.hidden);
     if (openBackdrop) closeModal(openBackdrop.id);
+  });
+
+  document.addEventListener("click", async event => {
+    const action = event.target.closest("[data-admin-status]");
+    if (!action || !state.isAdmin || !apiConfig.enabled) return;
+    const status = action.dataset.adminStatus;
+    const userId = Number(action.dataset.userId);
+    if (!confirm(`회원 #${userId} 상태를 ${status}(으)로 변경할까요?`)) return;
+    action.disabled = true;
+    try {
+      await apiRequest(`/admin/users/${userId}/status`, {
+        method: "PATCH", body: JSON.stringify({ status })
+      });
+      await loadAdminOverview();
+      toast("회원 상태를 변경했습니다.");
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      action.disabled = false;
+    }
   });
 
   renderSubjectChoices();

@@ -1,0 +1,7 @@
+# Local preview state and development secrets
+neuroplan-ui-mockup/.preview-server.pid
+*.secret.yaml
+.env
+
+# Java build output
+neuroplan-login-mvp/backend/target/

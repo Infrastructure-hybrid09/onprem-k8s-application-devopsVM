@@ -22,7 +22,7 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(DuplicateKeyException.class)
     ResponseEntity<Map<String, Object>> handleDuplicate(DuplicateKeyException exception, HttpServletRequest request) {
-        return response(HttpStatus.CONFLICT, "이미 가입된 이메일입니다.", request);
+        return response(HttpStatus.CONFLICT, "이미 존재하는 데이터와 충돌했습니다. 입력값을 확인해 주세요.", request);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

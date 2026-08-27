@@ -32,6 +32,9 @@ app:
     refresh-token-ttl: ${JWT_REFRESH_TTL:7d}
     secure-cookies: ${AUTH_COOKIE_SECURE:true}
     jwt-secret-base64: ${JWT_SECRET_BASE64}
+  admin:
+    # 쉼표로 구분한 관리자 이메일 허용 목록입니다. DB 스키마 변경 없이 MVP 관리자 권한을 제한합니다.
+    emails: ${ADMIN_EMAILS:}
 
 management:
   endpoints:

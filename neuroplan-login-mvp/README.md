@@ -1,4 +1,4 @@
-# NeuroPlan 학습 MVP 0.3.0
+# NeuroPlan 학습 MVP 0.4.0
 
 회원가입부터 과목·수준 설정, 오늘 플랜, 3단계 완료, 5문제 진단, 오답·일별 통계까지 MariaDB에 저장하는 최소 학습 서비스입니다. On-Prem Kubernetes에서 먼저 실행한 뒤 ROSA/OpenShift로 옮길 수 있도록 Workload와 진입 리소스를 분리했습니다.
 
@@ -27,11 +27,12 @@ Client
 
 | 화면/기능 | 실제 사용 테이블 |
 |---|---|
-| 회원가입·로그인·로그아웃 | `users`, `jwt_sessions` |
+| 회원가입·로그인·로그아웃·회원 탈퇴 | `users`, `jwt_sessions` |
 | 과목 목록·과목별 수준(최대 3개) | `subjects`, `user_subjects` |
 | 오늘의 플랜·3단계 완료 | `daily_plans`, `plan_steps` |
 | 5문제 진단·제출 답안 | `diagnosis_questions`, `question_options`, `diagnosis_attempts`, `diagnosis_answers` |
 | 오답 누적·대시보드 | `wrong_notes`, `study_daily_stats` |
+| 관리자 요약·회원 상태 관리 | 위 테이블의 집계 조회, `users`, `jwt_sessions` |
 
 ### 인증 저장 원칙
 
@@ -125,8 +126,8 @@ cd ~/onprem-k8s
 이미지:
 
 ```text
-192.168.34.21:5000/neuroplan/frontend:0.3.0
-192.168.34.21:5000/neuroplan/backend:0.3.0
+192.168.34.21:5000/neuroplan/frontend:0.4.0
+192.168.34.21:5000/neuroplan/backend:0.4.0
 ```
 
 이미지는 기본 UID 1001을 선언하지만 Pod YAML에는 UID/GID를 고정하지 않습니다. Kubernetes에서는 비-root로 실행되고 ROSA에서는 SCC가 할당한 임의 UID로 실행됩니다.
@@ -150,6 +151,8 @@ application/neuroplan-auth-secrets
 ```
 
 재실행하면 JWT 키도 바뀌어 기존 로그인이 모두 무효화됩니다. 일반 배포 때는 재실행하지 않고 키 교체 작업으로만 사용합니다.
+
+관리자 페이지는 `k8s/base/10-workloads.yaml`의 `ADMIN_EMAILS` 허용 목록으로 제한합니다. 기본 테스트 값은 `admin@nplan.local`이며, 해당 이메일로 회원가입/로그인하면 상단에 **관리자** 버튼이 표시됩니다. 팀 승인 이메일이 다르면 배포 전에 쉼표 구분 목록으로 교체합니다.
 
 ## 5. On-Prem 배포
 
@@ -189,11 +192,11 @@ DevOps VM에서는 DMZ Service VIP로 직접 라우팅되지 않으므로 스크
 - API와 DB health
 - 회원가입 후 users 저장
 - Access JWT로 `/auth/me` 호출
-- 과목·수준 저장과 오늘 플랜 생성
+- 과목·수준 저장, 프로필 변경 후 같은 일자 플랜 안전 재생성
 - 3단계 완료 및 5문제 진단 저장
 - 오답과 일별 학습 통계 반영
 - Refresh Token 회전 후 새 세션 사용
-- 로그아웃 후 세션 폐기 및 401
+- 비밀번호 확인 회원 탈퇴, 전체 세션 폐기, 탈퇴 계정 로그인 차단
 
 브라우저에서는 `https://app.nplan.local`에 접속해 회원가입 → 로그아웃 → 재로그인을 확인합니다.
 
@@ -248,6 +251,7 @@ LIMIT 10;
 | GET | `/api/auth/me` | Access JWT와 DB 세션 검증 |
 | POST | `/api/auth/refresh` | Refresh Token 회전 |
 | POST | `/api/auth/logout` | DB 세션 폐기와 쿠키 제거 |
+| POST | `/api/auth/withdraw` | 비밀번호 확인 후 `WITHDRAWN` 처리와 전체 세션 폐기 |
 | GET | `/api/learning/subjects` | 활성 과목 목록 |
 | GET | `/api/learning/state` | 프로필·오늘 플랜·통계·최근 진단 |
 | PUT | `/api/learning/profile` | 과목별 수준 최대 3개 저장 |
@@ -256,6 +260,8 @@ LIMIT 10;
 | GET | `/api/learning/diagnosis/questions` | 선택 과목 5문제 조회 |
 | POST | `/api/learning/diagnosis/check` | 한 문제 정답·해설 확인 |
 | POST | `/api/learning/diagnosis/attempts` | 풀이·오답·일별 통계 저장 |
+| GET | `/api/admin/overview` | 관리자용 회원·과목·오늘 플랜·진단 요약 |
+| PATCH | `/api/admin/users/{id}/status` | 관리자용 ACTIVE/LOCKED/WITHDRAWN 상태 변경 |
 | GET | `/api/health` | API 상태 |
 | GET | `/api/db-health` | MaxScale/MariaDB 상태 |
 
@@ -287,8 +293,8 @@ NAMESPACE=neuroplan KUBE_CLI=oc ./scripts/00-create-db-secret.sh
 
 cd k8s/rosa
 kustomize edit set image \
-  192.168.34.21:5000/neuroplan/frontend:0.3.0=quay.io/ORG/neuroplan-frontend:0.3.0 \
-  192.168.34.21:5000/neuroplan/backend:0.3.0=quay.io/ORG/neuroplan-backend:0.3.0
+  192.168.34.21:5000/neuroplan/frontend:0.4.0=quay.io/ORG/neuroplan-frontend:0.4.0 \
+  192.168.34.21:5000/neuroplan/backend:0.4.0=quay.io/ORG/neuroplan-backend:0.4.0
 oc apply -k .
 ```
 

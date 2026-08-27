@@ -138,6 +138,8 @@
     .button.secondary { border-color: var(--line); }
     .button.secondary:hover { background: #f2f8f3; }
     .button.ghost { color: var(--blue); background: transparent; }
+    .button.danger { color: #fff; background: var(--danger); }
+    .button.danger:hover { background: #a9584e; }
     .button.block { width: 100%; }
     .button.small { min-height: 36px; padding: 0 12px; border-radius: 11px; font-size: 12px; }
     .button:disabled { opacity: .45; cursor: not-allowed; transform: none; box-shadow: none; }
@@ -533,9 +535,36 @@
     .toast.show { transform: none; opacity: 1; }
     .toast-icon { color: var(--yellow); font-size: 16px; }
 
+    .admin-head {
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .admin-head h1 { margin: 0 0 7px; color: var(--navy); font-size: 30px; letter-spacing: -.045em; }
+    .admin-head p { margin: 0; color: var(--muted); font-size: 13px; }
+    .admin-metrics { margin-bottom: 22px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+    .admin-metric { padding: 20px; border: 1px solid var(--line); border-radius: 19px; background: var(--paper); box-shadow: 0 10px 28px rgba(59,100,79,.08); }
+    .admin-metric span { color: var(--muted); font-size: 11px; font-weight: 800; }
+    .admin-metric strong { margin-top: 8px; display: block; color: var(--navy); font-size: 27px; }
+    .admin-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 20px; background: var(--paper); box-shadow: var(--shadow); }
+    .admin-table { width: 100%; border-collapse: collapse; min-width: 860px; }
+    .admin-table th, .admin-table td { padding: 14px 15px; border-bottom: 1px solid var(--line); text-align: left; font-size: 12px; vertical-align: middle; }
+    .admin-table th { color: var(--muted); background: var(--sky-soft); font-size: 10px; letter-spacing: .03em; text-transform: uppercase; }
+    .admin-table tr:last-child td { border-bottom: 0; }
+    .account-badge { padding: 5px 9px; border-radius: 999px; display: inline-flex; font-size: 10px; font-weight: 900; }
+    .account-badge.active { color: #39705a; background: var(--teal-soft); }
+    .account-badge.locked { color: #9a6b24; background: var(--yellow-soft); }
+    .account-badge.withdrawn { color: #9e5148; background: var(--danger-soft); }
+    .admin-user-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+    .admin-user-actions .button { min-height: 30px; padding: 0 9px; font-size: 10px; }
+    .danger-note { margin: 0 0 16px; padding: 13px 14px; border-radius: 13px; color: #8e5049; background: var(--danger-soft); font-size: 12px; line-height: 1.55; }
+
     @media (max-width: 900px) {
       .hero { grid-template-columns: 1fr; }
       .main-grid { grid-template-columns: 1fr; }
+      .admin-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 680px) {
       .topbar-inner, .dashboard { width: min(100% - 24px, 1180px); }
@@ -553,6 +582,8 @@
       .subject-level-buttons { grid-template-columns: 1fr; }
       .choice { min-height: 58px; }
       .modal-backdrop { padding: 12px; }
+      .admin-head { align-items: flex-start; flex-direction: column; }
+      .admin-metrics { grid-template-columns: 1fr; }
     }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
@@ -562,7 +593,7 @@
 <body>
   <header class="topbar">
     <div class="topbar-inner">
-      <a class="brand" href="#dashboard" aria-label="NeuroPlan 홈">
+      <a class="brand" id="homeBrand" href="#dashboard" aria-label="NeuroPlan 홈, 페이지 최상단으로 이동">
         <span class="brand-mark" aria-hidden="true"><img src="assets/neuroplan-brain-icon.png" alt=""></span>
         NeuroPlan
       </a>
@@ -570,6 +601,8 @@
         <button class="button secondary small" id="resetDemo" type="button">데모 초기화</button>
         <button class="button primary small" id="signupButton" type="button">회원가입</button>
         <button class="button ghost" id="loginButton" type="button">로그인</button>
+        <button class="button secondary small" id="adminButton" type="button" hidden>관리자</button>
+        <button class="button ghost small" id="withdrawButton" type="button" hidden>회원 탈퇴</button>
         <button class="button ghost small" id="logoutButton" type="button" hidden>로그아웃</button>
         <div class="user-chip" id="userChip" hidden>
           <span class="user-avatar" id="userInitial">김</span>
@@ -698,6 +731,28 @@
     </section>
   </main>
 
+  <main class="dashboard" id="adminPage" hidden>
+    <div class="admin-head">
+      <div><h1>NeuroPlan 관리자</h1><p id="adminIdentity">회원과 오늘의 학습 현황을 확인합니다.</p></div>
+      <button class="button secondary" id="adminBackButton" type="button">학습 화면으로</button>
+    </div>
+    <section class="admin-metrics" aria-label="관리 요약">
+      <article class="admin-metric"><span>전체 회원</span><strong id="adminTotalUsers">0</strong></article>
+      <article class="admin-metric"><span>활성 회원</span><strong id="adminActiveUsers">0</strong></article>
+      <article class="admin-metric"><span>오늘 플랜</span><strong id="adminTodayPlans">0</strong></article>
+      <article class="admin-metric"><span>오늘 진단</span><strong id="adminTodayAttempts">0</strong></article>
+    </section>
+    <section aria-labelledby="adminUsersTitle">
+      <div class="card-head"><div><h2 id="adminUsersTitle">최근 회원</h2><p>계정 상태를 변경하면 잠금·탈퇴 회원의 로그인 세션이 즉시 폐기됩니다.</p></div><button class="button ghost small" id="adminRefresh" type="button">새로고침</button></div>
+      <div class="admin-table-wrap">
+        <table class="admin-table">
+          <thead><tr><th>회원</th><th>상태</th><th>선택 과목</th><th>가입 시각</th><th>최근 세션</th><th>관리</th></tr></thead>
+          <tbody id="adminUsersBody"><tr><td colspan="6">관리자 데이터를 불러오는 중입니다.</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
   <div class="modal-backdrop" id="authModal" hidden>
     <section class="modal" role="dialog" aria-modal="true" aria-labelledby="authTitle">
       <div class="modal-head">
@@ -750,6 +805,23 @@
         </div>
         <div class="form-message" id="profileMessage" role="alert"></div>
         <button class="button primary block" id="saveProfile" type="button">설정 저장</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="withdrawModal" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="withdrawTitle">
+      <div class="modal-head">
+        <div><h2 id="withdrawTitle">회원 탈퇴</h2><p>탈퇴 후 이 계정으로 로그인할 수 없습니다.</p></div>
+        <button class="close-button" type="button" data-close="withdrawModal" aria-label="닫기">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="danger-note">학습 기록은 DB 무결성과 운영 이력을 위해 보존되며, 계정 상태가 <strong>WITHDRAWN</strong>으로 변경되고 모든 로그인 세션이 폐기됩니다.</p>
+        <form id="withdrawForm" autocomplete="off">
+          <div class="field"><label for="withdrawPassword">현재 비밀번호</label><input id="withdrawPassword" type="password" autocomplete="current-password" minlength="8" maxlength="72" placeholder="현재 비밀번호 입력" required></div>
+          <div class="form-message" id="withdrawMessage" role="alert"></div>
+          <button class="button danger block" id="withdrawSubmit" type="submit">탈퇴 확인</button>
+        </form>
       </div>
     </section>
   </div>

@@ -8,6 +8,7 @@ import com.neuroplan.auth.auth.dto.AuthResponse;
 import com.neuroplan.auth.auth.dto.LoginRequest;
 import com.neuroplan.auth.auth.dto.SignupRequest;
 import com.neuroplan.auth.auth.dto.UserResponse;
+import com.neuroplan.auth.auth.dto.WithdrawRequest;
 import com.neuroplan.auth.config.AuthProperties;
 import com.neuroplan.auth.error.ApiException;
 import com.neuroplan.auth.session.AuthCookieService;
@@ -25,6 +26,7 @@ import jakarta.validation.Valid;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -43,6 +45,7 @@ public class AuthController {
     private final RefreshTokenService refreshTokenService;
     private final AuthCookieService cookieService;
     private final AuthProperties authProperties;
+    private final CurrentUserService currentUserService;
 
     public AuthController(
             UserRepository userRepository,
@@ -51,7 +54,8 @@ public class AuthController {
             JwtTokenService jwtTokenService,
             RefreshTokenService refreshTokenService,
             AuthCookieService cookieService,
-            AuthProperties authProperties
+            AuthProperties authProperties,
+            CurrentUserService currentUserService
     ) {
         this.userRepository = userRepository;
         this.sessionRepository = sessionRepository;
@@ -60,6 +64,7 @@ public class AuthController {
         this.refreshTokenService = refreshTokenService;
         this.cookieService = cookieService;
         this.authProperties = authProperties;
+        this.currentUserService = currentUserService;
     }
 
     @PostMapping("/signup")
@@ -72,11 +77,16 @@ public class AuthController {
         if (userRepository.findByEmail(email).isPresent()) {
             throw new ApiException(HttpStatus.CONFLICT, "이미 가입된 이메일입니다.");
         }
-        UserRecord user = userRepository.insert(
-                email,
-                request.nickname().trim(),
-                passwordEncoder.encode(request.password())
-        );
+        UserRecord user;
+        try {
+            user = userRepository.insert(
+                    email,
+                    request.nickname().trim(),
+                    passwordEncoder.encode(request.password())
+            );
+        } catch (DuplicateKeyException exception) {
+            throw new ApiException(HttpStatus.CONFLICT, "이미 가입된 이메일입니다.");
+        }
         issueTokens(user, response);
         return ResponseEntity.status(HttpStatus.CREATED).body(new AuthResponse(UserResponse.from(user)));
     }
@@ -135,6 +145,23 @@ public class AuthController {
                 .map(refreshTokenService::hash)
                 .flatMap(sessionRepository::findActiveByRefreshTokenHash)
                 .ifPresent(session -> sessionRepository.revoke(session.id(), Instant.now()));
+        cookieService.clear(response);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/withdraw")
+    @Transactional
+    ResponseEntity<Void> withdraw(
+            @Valid @RequestBody WithdrawRequest body,
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) {
+        UserRecord user = currentUserService.require(request);
+        if (!passwordEncoder.matches(body.password(), user.passwordHash())) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "비밀번호가 올바르지 않습니다.");
+        }
+        sessionRepository.revokeAllForUser(user.id(), Instant.now());
+        userRepository.updateAccountStatus(user.id(), "WITHDRAWN");
         cookieService.clear(response);
         return ResponseEntity.noContent().build();
     }

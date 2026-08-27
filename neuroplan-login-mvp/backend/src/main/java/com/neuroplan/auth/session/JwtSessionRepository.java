@@ -66,4 +66,13 @@ public class JwtSessionRepository {
                  WHERE id = ?
                 """, Timestamp.from(revokedAt), id);
     }
+
+    public void revokeAllForUser(long userId, Instant revokedAt) {
+        jdbcTemplate.update("""
+                UPDATE jwt_sessions
+                   SET revoked_at = COALESCE(revoked_at, ?)
+                 WHERE user_id = ?
+                   AND revoked_at IS NULL
+                """, Timestamp.from(revokedAt), userId);
+    }
 }

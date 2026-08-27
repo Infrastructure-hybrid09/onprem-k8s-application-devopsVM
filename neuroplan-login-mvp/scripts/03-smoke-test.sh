@@ -67,9 +67,21 @@ curl_request -ksS --fail -b "$COOKIE_JAR" \
   "$BASE_URL/api/learning/profile" | jq -e \
   'length == 1 and .[0].subjectCode == "LINUX" and .[0].learningLevel == "BEGINNER"'
 
-echo "===== Daily plan / three steps ====="
+echo "===== Daily plan / profile-change regression ====="
 PLAN_ID="$(curl_request -ksS --fail -b "$COOKIE_JAR" -X POST \
   "$BASE_URL/api/learning/plans" | jq -er '.id')"
+curl_request -ksS --fail -b "$COOKIE_JAR" \
+  -X PUT \
+  -H 'Content-Type: application/json' \
+  -d '{"subjects":[{"code":"DATABASE","learningLevel":"INTERMEDIATE"}]}' \
+  "$BASE_URL/api/learning/profile" | jq -e \
+  'length == 1 and .[0].subjectCode == "DATABASE" and .[0].learningLevel == "INTERMEDIATE"'
+REPLACED_PLAN_ID="$(curl_request -ksS --fail -b "$COOKIE_JAR" -X POST \
+  "$BASE_URL/api/learning/plans" | jq -er \
+  --argjson original "$PLAN_ID" '.id == $original and .subjectCode == "DATABASE" | if . then $original else error("plan was not reused") end')"
+[[ "$REPLACED_PLAN_ID" == "$PLAN_ID" ]] || { echo "[FAIL] daily plan id changed after profile update" >&2; exit 3; }
+
+echo "===== Three plan steps ====="
 for step_no in 1 2 3; do
   curl_request -ksS --fail -b "$COOKIE_JAR" \
     -X PATCH \
@@ -81,9 +93,9 @@ done
 
 echo "===== Diagnosis / answers / daily stats ====="
 curl_request -ksS --fail -b "$COOKIE_JAR" \
-  "$BASE_URL/api/learning/diagnosis/questions?subjectCode=LINUX" | tee "$QUESTIONS_FILE" | jq -e \
+  "$BASE_URL/api/learning/diagnosis/questions?subjectCode=DATABASE" | tee "$QUESTIONS_FILE" | jq -e \
   'length == 5 and all(.[]; (.options | length) >= 2)'
-ATTEMPT_BODY="$(jq -c '{subjectCode:"LINUX",answers:map({questionId:.id,selectedOptionId:.options[0].id})}' "$QUESTIONS_FILE")"
+ATTEMPT_BODY="$(jq -c '{subjectCode:"DATABASE",answers:map({questionId:.id,selectedOptionId:.options[0].id})}' "$QUESTIONS_FILE")"
 curl_request -ksS --fail -b "$COOKIE_JAR" \
   -X POST \
   -H 'Content-Type: application/json' \
@@ -91,7 +103,7 @@ curl_request -ksS --fail -b "$COOKIE_JAR" \
   "$BASE_URL/api/learning/diagnosis/attempts" | jq -e \
   '.totalQuestions == 5 and .correctAnswers >= 0 and (.results | length) == 5'
 curl_request -ksS --fail -b "$COOKIE_JAR" "$BASE_URL/api/learning/state" | jq -e \
-  '.profile | length == 1' >/dev/null
+  '(.profile | length == 1) and (.profile[0].subjectCode == "DATABASE")' >/dev/null
 curl_request -ksS --fail -b "$COOKIE_JAR" "$BASE_URL/api/learning/state" | jq -e \
   '.plan.status == "COMPLETED" and .stats.completedStepCount == 3 and .stats.solvedCount >= 5 and .diagnosis.totalQuestions == 5'
 
@@ -102,11 +114,19 @@ curl_request -ksS --fail -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
 curl_request -ksS --fail -b "$COOKIE_JAR" "$BASE_URL/api/auth/me" | jq -e \
   --arg email "$TEST_EMAIL" '.user.email == $email'
 
-echo "===== Logout ====="
+echo "===== Membership withdrawal ====="
 curl_request -ksS --fail -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
-  -X POST "$BASE_URL/api/auth/logout" >/dev/null
+  -X POST \
+  -H 'Content-Type: application/json' \
+  -d "$(jq -nc --arg password "$TEST_PASSWORD" '{password:$password}')" \
+  "$BASE_URL/api/auth/withdraw" >/dev/null
 HTTP_CODE="$(curl_request -ksS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" "$BASE_URL/api/auth/me")"
-[[ "$HTTP_CODE" == "401" ]] || { echo "[FAIL] expected 401 after logout, got $HTTP_CODE" >&2; exit 3; }
+[[ "$HTTP_CODE" == "401" ]] || { echo "[FAIL] expected 401 after withdrawal, got $HTTP_CODE" >&2; exit 4; }
+HTTP_CODE="$(curl_request -ksS -o /dev/null -w '%{http_code}' \
+  -H 'Content-Type: application/json' \
+  -d "$(jq -nc --arg email "$TEST_EMAIL" --arg password "$TEST_PASSWORD" '{email:$email,password:$password}')" \
+  "$BASE_URL/api/auth/login")"
+[[ "$HTTP_CODE" == "403" ]] || { echo "[FAIL] expected 403 login for withdrawn account, got $HTTP_CODE" >&2; exit 5; }
 
-echo "[PASS] auth, profile, plan, diagnosis, DB statistics, JWT rotation and logout completed"
+echo "[PASS] auth, profile edit, plan reuse, diagnosis, DB statistics, JWT rotation and withdrawal completed"
 echo "[INFO] DB verification email: $TEST_EMAIL"

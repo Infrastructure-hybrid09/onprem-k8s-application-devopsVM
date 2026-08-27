@@ -74,4 +74,12 @@ public class UserRepository {
                 .orElseThrow(() -> new IllegalStateException("회원 번호를 생성하지 못했습니다."));
         return new UserRecord(id.longValue(), email, passwordHash, nickname, "ACTIVE", createdAt, createdAt);
     }
+
+    public void updateAccountStatus(long userId, String accountStatus) {
+        jdbcTemplate.update("""
+                UPDATE users
+                   SET account_status = ?, updated_at = CURRENT_TIMESTAMP(6)
+                 WHERE id = ?
+                """, accountStatus, userId);
+    }
 }

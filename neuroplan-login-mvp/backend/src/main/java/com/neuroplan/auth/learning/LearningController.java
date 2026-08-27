@@ -136,7 +136,7 @@ public class LearningController {
         }
         ProfileSubjectResponse focus = profile.getFirst();
         String title = focus.subjectName() + " " + focus.levelLabel() + " 오늘의 학습 플랜";
-        Long planId = findTodayPlanId(user.id(), focus.subjectId());
+        Long planId = findTodayPlanId(user.id());
         if (planId == null) {
             planId = insertAndReturnId("""
                     INSERT INTO daily_plans (
@@ -146,9 +146,10 @@ public class LearningController {
         } else {
             jdbcTemplate.update("""
                     UPDATE daily_plans
-                       SET title = ?, plan_status = 'READY', updated_at = CURRENT_TIMESTAMP(6)
+                       SET subject_id = ?, title = ?, plan_status = 'READY',
+                           updated_at = CURRENT_TIMESTAMP(6)
                      WHERE id = ? AND user_id = ?
-                    """, title, planId, user.id());
+                    """, focus.subjectId(), title, planId, user.id());
             jdbcTemplate.update("DELETE FROM plan_steps WHERE plan_id = ?", planId);
         }
 
@@ -464,14 +465,14 @@ public class LearningController {
         ));
     }
 
-    private Long findTodayPlanId(long userId, long subjectId) {
+    private Long findTodayPlanId(long userId) {
         return jdbcTemplate.query("""
                 SELECT id
                   FROM daily_plans
-                 WHERE user_id = ? AND subject_id = ? AND plan_date = CURRENT_DATE
+                 WHERE user_id = ? AND plan_date = CURRENT_DATE
                  ORDER BY id DESC
                  LIMIT 1
-                """, (rs, rowNum) -> rs.getLong("id"), userId, subjectId)
+                """, (rs, rowNum) -> rs.getLong("id"), userId)
                 .stream().findFirst().orElse(null);
     }
 
