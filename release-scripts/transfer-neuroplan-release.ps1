@@ -14,10 +14,14 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 if ([string]::IsNullOrWhiteSpace($ArchivePath)) {
-    $ArchivePath = Join-Path -Path $PSScriptRoot -ChildPath "neuroplan-login-mvp-0.5.0-bundle.zip"
+    $ArchivePath = Join-Path -Path $PSScriptRoot -ChildPath "neuroplan-login-mvp-0.6.0-bundle.zip"
 }
 if ([string]::IsNullOrWhiteSpace($DeployScriptPath)) {
     $DeployScriptPath = Join-Path -Path $PSScriptRoot -ChildPath "deploy-neuroplan-release.sh"
+}
+
+if ($ArchivePath -match '[<>]') {
+    throw "ArchivePath contains a placeholder character (< or >). Use the actual archive filename, for example: neuroplan-login-mvp-0.6.0-bundle.zip"
 }
 
 function Invoke-Native {
@@ -58,7 +62,7 @@ if ($IdentityFile -and (Test-Path -LiteralPath $IdentityFile)) {
 
 $localHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
 
-Write-Host "===== NeuroPlan 0.5.0 transfer ====="
+Write-Host "===== NeuroPlan 0.6.0 transfer ====="
 Write-Host "Local archive : $archive"
 Write-Host "SHA256        : $localHash"
 Write-Host "Remote target : ${remoteTarget}:$RemoteDirectory"

@@ -63,23 +63,18 @@ curl_request -ksS --fail -b "$COOKIE_JAR" "$BASE_URL/api/learning/subjects" | jq
 curl_request -ksS --fail -b "$COOKIE_JAR" \
   -X PUT \
   -H 'Content-Type: application/json' \
-  -d '{"subjects":[{"code":"LINUX","learningLevel":"BEGINNER"}]}' \
+  -d '{"subjects":[{"code":"LINUX","learningLevel":"BEGINNER"},{"code":"DATABASE","learningLevel":"INTERMEDIATE"}]}' \
   "$BASE_URL/api/learning/profile" | jq -e \
-  'length == 1 and .[0].subjectCode == "LINUX" and .[0].learningLevel == "BEGINNER"'
+  'length == 2 and .[0].subjectCode == "LINUX" and .[1].subjectCode == "DATABASE"'
 
-echo "===== Daily plan / profile-change regression ====="
+echo "===== Per-subject daily plans ====="
 PLAN_ID="$(curl_request -ksS --fail -b "$COOKIE_JAR" -X POST \
-  "$BASE_URL/api/learning/plans" | jq -er '.id')"
-curl_request -ksS --fail -b "$COOKIE_JAR" \
-  -X PUT \
-  -H 'Content-Type: application/json' \
-  -d '{"subjects":[{"code":"DATABASE","learningLevel":"INTERMEDIATE"}]}' \
-  "$BASE_URL/api/learning/profile" | jq -e \
-  'length == 1 and .[0].subjectCode == "DATABASE" and .[0].learningLevel == "INTERMEDIATE"'
-REPLACED_PLAN_ID="$(curl_request -ksS --fail -b "$COOKIE_JAR" -X POST \
-  "$BASE_URL/api/learning/plans" | jq -er \
-  --argjson original "$PLAN_ID" '.id == $original and .subjectCode == "DATABASE" | if . then $original else error("plan was not reused") end')"
-[[ "$REPLACED_PLAN_ID" == "$PLAN_ID" ]] || { echo "[FAIL] daily plan id changed after profile update" >&2; exit 3; }
+  "$BASE_URL/api/learning/plans?subjectCode=LINUX" | jq -er '.id')"
+DATABASE_PLAN_ID="$(curl_request -ksS --fail -b "$COOKIE_JAR" -X POST \
+  "$BASE_URL/api/learning/plans?subjectCode=DATABASE" | jq -er '.id')"
+[[ "$DATABASE_PLAN_ID" != "$PLAN_ID" ]] || { echo "[FAIL] subjects unexpectedly share one daily plan" >&2; exit 3; }
+curl_request -ksS --fail -b "$COOKIE_JAR" "$BASE_URL/api/learning/state" | jq -e \
+  '(.plans | length) == 2 and ([.plans[].subjectCode] | sort) == ["DATABASE","LINUX"]'
 
 echo "===== Three plan steps ====="
 for step_no in 1 2 3; do
@@ -103,14 +98,31 @@ curl_request -ksS --fail -b "$COOKIE_JAR" \
   "$BASE_URL/api/learning/diagnosis/attempts" | jq -e \
   '.totalQuestions == 5 and .correctAnswers >= 0 and (.results | length) == 5'
 curl_request -ksS --fail -b "$COOKIE_JAR" "$BASE_URL/api/learning/state" | jq -e \
-  '(.profile | length == 1) and (.profile[0].subjectCode == "DATABASE")' >/dev/null
-curl_request -ksS --fail -b "$COOKIE_JAR" "$BASE_URL/api/learning/state" | jq -e \
   '.plan.status == "COMPLETED" and .stats.completedStepCount == 3 and .stats.solvedCount >= 5 and .diagnosis.totalQuestions == 5'
+curl_request -ksS --fail -b "$COOKIE_JAR" "$BASE_URL/api/learning/dashboard?days=28" | jq -e \
+  '(.subjectStats | length) == 2 and (.dailyStats | type) == "array"'
+curl_request -ksS --fail -b "$COOKIE_JAR" "$BASE_URL/api/learning/plans/history?days=30" | jq -e \
+  'length >= 2'
 
 echo "===== Refresh Token rotation ====="
 curl_request -ksS --fail -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
   -X POST "$BASE_URL/api/auth/refresh" | jq -e \
   --arg email "$TEST_EMAIL" '.user.email == $email'
+
+echo "===== Password change / all-session revocation ====="
+NEW_PASSWORD="NeuroPlan!2027"
+curl_request -ksS --fail -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+  -X PUT -H 'Content-Type: application/json' \
+  -d "$(jq -nc --arg currentPassword "$TEST_PASSWORD" --arg newPassword "$NEW_PASSWORD" '{currentPassword:$currentPassword,newPassword:$newPassword}')" \
+  "$BASE_URL/api/auth/password" >/dev/null
+curl_request -ksS --fail -c "$COOKIE_JAR" -H 'Content-Type: application/json' \
+  -d "$(jq -nc --arg email "$TEST_EMAIL" --arg password "$NEW_PASSWORD" '{email:$email,password:$password}')" \
+  "$BASE_URL/api/auth/login" | jq -e --arg email "$TEST_EMAIL" '.user.email == $email'
+curl_request -ksS --fail -b "$COOKIE_JAR" -c "$COOKIE_JAR" -X DELETE \
+  "$BASE_URL/api/auth/sessions" >/dev/null
+curl_request -ksS --fail -c "$COOKIE_JAR" -H 'Content-Type: application/json' \
+  -d "$(jq -nc --arg email "$TEST_EMAIL" --arg password "$NEW_PASSWORD" '{email:$email,password:$password}')" \
+  "$BASE_URL/api/auth/login" >/dev/null
 curl_request -ksS --fail -b "$COOKIE_JAR" "$BASE_URL/api/auth/me" | jq -e \
   --arg email "$TEST_EMAIL" '.user.email == $email'
 
@@ -118,15 +130,15 @@ echo "===== Membership withdrawal ====="
 curl_request -ksS --fail -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
   -X POST \
   -H 'Content-Type: application/json' \
-  -d "$(jq -nc --arg password "$TEST_PASSWORD" '{password:$password}')" \
+  -d "$(jq -nc --arg password "$NEW_PASSWORD" '{password:$password}')" \
   "$BASE_URL/api/auth/withdraw" >/dev/null
 HTTP_CODE="$(curl_request -ksS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" "$BASE_URL/api/auth/me")"
 [[ "$HTTP_CODE" == "401" ]] || { echo "[FAIL] expected 401 after withdrawal, got $HTTP_CODE" >&2; exit 4; }
 HTTP_CODE="$(curl_request -ksS -o /dev/null -w '%{http_code}' \
   -H 'Content-Type: application/json' \
-  -d "$(jq -nc --arg email "$TEST_EMAIL" --arg password "$TEST_PASSWORD" '{email:$email,password:$password}')" \
+  -d "$(jq -nc --arg email "$TEST_EMAIL" --arg password "$NEW_PASSWORD" '{email:$email,password:$password}')" \
   "$BASE_URL/api/auth/login")"
 [[ "$HTTP_CODE" == "403" ]] || { echo "[FAIL] expected 403 login for withdrawn account, got $HTTP_CODE" >&2; exit 5; }
 
-echo "[PASS] auth, profile edit, plan reuse, diagnosis, DB statistics, JWT rotation and withdrawal completed"
+echo "[PASS] auth, per-subject plans, independent diagnosis, dashboard, history, password/session security and withdrawal completed"
 echo "[INFO] DB verification email: $TEST_EMAIL"

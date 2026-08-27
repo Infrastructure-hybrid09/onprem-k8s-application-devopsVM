@@ -82,4 +82,12 @@ public class UserRepository {
                  WHERE id = ?
                 """, accountStatus, userId);
     }
+
+    public void updatePasswordHash(long userId, String passwordHash) {
+        jdbcTemplate.update("""
+                UPDATE users
+                   SET password_hash = ?, updated_at = CURRENT_TIMESTAMP(6)
+                 WHERE id = ?
+                """, passwordHash, userId);
+    }
 }

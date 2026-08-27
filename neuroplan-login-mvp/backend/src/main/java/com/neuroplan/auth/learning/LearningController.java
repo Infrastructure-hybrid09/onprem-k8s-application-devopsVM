@@ -23,6 +23,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
@@ -69,12 +70,13 @@ public class LearningController {
     public LearningStateResponse state(HttpServletRequest request) {
         UserRecord user = currentUserService.require(request);
         List<ProfileSubjectResponse> profile = profileFor(user.id());
-        PlanResponse plan = profile.isEmpty() ? null : todayPlan(user.id(), profile.getFirst().subjectId());
+        List<PlanResponse> plans = todayPlans(user.id(), profile);
+        PlanResponse plan = plans.isEmpty() ? null : plans.getFirst();
         TodayStatsResponse stats = todayStats(user.id());
         DiagnosisSummaryResponse diagnosis = profile.isEmpty()
                 ? null
-                : latestDiagnosis(user.id(), profile.getFirst().subjectId());
-        return new LearningStateResponse(profile, plan, stats, diagnosis);
+                : latestDiagnosis(user.id());
+        return new LearningStateResponse(profile, plan, plans, stats, diagnosis);
     }
 
     @GetMapping("/dashboard")
@@ -175,21 +177,39 @@ public class LearningController {
 
     @PostMapping("/plans")
     @Transactional
-    public PlanResponse createOrReplacePlan(HttpServletRequest request) {
+    public PlanResponse createOrReplacePlan(
+            @RequestParam(required = false) String subjectCode,
+            HttpServletRequest request
+    ) {
         UserRecord user = currentUserService.require(request);
         List<ProfileSubjectResponse> profile = profileFor(user.id());
         if (profile.isEmpty()) {
             throw new ApiException(HttpStatus.CONFLICT, "과목과 수준을 먼저 설정해 주세요.");
         }
-        ProfileSubjectResponse focus = profile.getFirst();
+        ProfileSubjectResponse focus = subjectCode == null || subjectCode.isBlank()
+                ? profile.getFirst()
+                : profile.stream()
+                    .filter(item -> item.subjectCode().equalsIgnoreCase(subjectCode.trim()))
+                    .findFirst()
+                    .orElseThrow(() -> new ApiException(
+                            HttpStatus.BAD_REQUEST,
+                            "학습 프로필에 선택한 과목이 없습니다: " + subjectCode
+                    ));
         String title = focus.subjectName() + " " + focus.levelLabel() + " 오늘의 학습 플랜";
-        Long planId = findTodayPlanId(user.id());
+        Long planId = findTodayPlanId(user.id(), focus.subjectId());
         if (planId == null) {
-            planId = insertAndReturnId("""
-                    INSERT INTO daily_plans (
-                        user_id, subject_id, plan_date, title, plan_status, created_at, updated_at
-                    ) VALUES (?, ?, CURRENT_DATE, ?, 'READY', CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))
-                    """, user.id(), focus.subjectId(), title);
+            try {
+                planId = insertAndReturnId("""
+                        INSERT INTO daily_plans (
+                            user_id, subject_id, plan_date, title, plan_status, created_at, updated_at
+                        ) VALUES (?, ?, CURRENT_DATE, ?, 'READY', CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))
+                        """, user.id(), focus.subjectId(), title);
+            } catch (DuplicateKeyException exception) {
+                throw new ApiException(
+                        HttpStatus.CONFLICT,
+                        "과목별 플랜을 저장할 수 없습니다. daily_plans UNIQUE 키에 user_id, subject_id, plan_date가 포함됐는지 확인해 주세요."
+                );
+            }
         } else {
             jdbcTemplate.update("""
                     UPDATE daily_plans
@@ -208,6 +228,39 @@ public class LearningController {
                 "오늘 학습한 내용을 요약하고 진단 문제를 준비합니다.");
         syncCompletedStepStats(user.id());
         return todayPlan(user.id(), focus.subjectId());
+    }
+
+    @GetMapping("/plans/history")
+    public List<PlanHistoryResponse> planHistory(
+            @RequestParam(defaultValue = "30") int days,
+            HttpServletRequest request
+    ) {
+        UserRecord user = currentUserService.require(request);
+        if (days < 1 || days > 365) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "플랜 조회 기간은 1일 이상 365일 이하여야 합니다.");
+        }
+        return jdbcTemplate.query("""
+                SELECT dp.id, dp.plan_date, dp.title, dp.plan_status,
+                       s.code AS subject_code, s.name AS subject_name,
+                       SUM(ps.step_status = 'COMPLETED') AS completed_steps,
+                       COUNT(ps.id) AS total_steps
+                  FROM daily_plans dp
+                  JOIN subjects s ON s.id = dp.subject_id
+             LEFT JOIN plan_steps ps ON ps.plan_id = dp.id
+                 WHERE dp.user_id = ?
+                   AND dp.plan_date >= DATE_SUB(CURRENT_DATE, INTERVAL ? DAY)
+                 GROUP BY dp.id, dp.plan_date, dp.title, dp.plan_status, s.code, s.name
+                 ORDER BY dp.plan_date DESC, dp.id DESC
+                """, (rs, rowNum) -> new PlanHistoryResponse(
+                rs.getLong("id"),
+                rs.getDate("plan_date").toLocalDate(),
+                rs.getString("title"),
+                rs.getString("plan_status"),
+                rs.getString("subject_code"),
+                rs.getString("subject_name"),
+                rs.getInt("completed_steps"),
+                rs.getInt("total_steps")
+        ), user.id(), days - 1);
     }
 
     @PatchMapping("/plans/{planId}/steps/{stepNo}")
@@ -469,6 +522,13 @@ public class LearningController {
         );
     }
 
+    private List<PlanResponse> todayPlans(long userId, List<ProfileSubjectResponse> profile) {
+        return profile.stream()
+                .map(item -> todayPlan(userId, item.subjectId()))
+                .filter(java.util.Objects::nonNull)
+                .toList();
+    }
+
     private TodayStatsResponse todayStats(long userId) {
         return jdbcTemplate.query("""
                 SELECT solved_count, correct_count, completed_step_count
@@ -513,22 +573,44 @@ public class LearningController {
 
     private List<SubjectAccuracyResponse> subjectAccuracy(long userId) {
         return jdbcTemplate.query("""
-                SELECT s.code, s.name,
-                       COUNT(da.id) AS attempt_count,
-                       COALESCE(SUM(da.total_questions), 0) AS solved_count,
-                       COALESCE(SUM(da.correct_answers), 0) AS correct_count
-                  FROM diagnosis_attempts da
-                  JOIN subjects s ON s.id = da.subject_id
-                 WHERE da.user_id = ? AND da.attempt_status = 'COMPLETED'
-                 GROUP BY s.id, s.code, s.name
-                 ORDER BY solved_count DESC, s.name
+                SELECT s.code, s.name, us.learning_level,
+                       COALESCE(diag.attempt_count, 0) AS attempt_count,
+                       COALESCE(diag.solved_count, 0) AS solved_count,
+                       COALESCE(diag.correct_count, 0) AS correct_count,
+                       COALESCE(plan.completed_steps, 0) AS completed_steps,
+                       COALESCE(plan.total_steps, 0) AS total_steps
+                  FROM user_subjects us
+                  JOIN subjects s ON s.id = us.subject_id
+             LEFT JOIN (
+                       SELECT subject_id, COUNT(*) AS attempt_count,
+                              SUM(total_questions) AS solved_count,
+                              SUM(correct_answers) AS correct_count
+                         FROM diagnosis_attempts
+                        WHERE user_id = ? AND attempt_status = 'COMPLETED'
+                        GROUP BY subject_id
+                       ) diag ON diag.subject_id = s.id
+             LEFT JOIN (
+                       SELECT dp.subject_id,
+                              SUM(ps.step_status = 'COMPLETED') AS completed_steps,
+                              COUNT(ps.id) AS total_steps
+                         FROM daily_plans dp
+                    LEFT JOIN plan_steps ps ON ps.plan_id = dp.id
+                        WHERE dp.user_id = ?
+                          AND dp.plan_date BETWEEN DATE_SUB(CURRENT_DATE, INTERVAL 6 DAY) AND CURRENT_DATE
+                        GROUP BY dp.subject_id
+                       ) plan ON plan.subject_id = s.id
+                 WHERE us.user_id = ?
+                 ORDER BY us.slot_no
                 """, (rs, rowNum) -> new SubjectAccuracyResponse(
                 rs.getString("code"),
                 rs.getString("name"),
+                rs.getString("learning_level"),
                 rs.getInt("attempt_count"),
                 rs.getInt("solved_count"),
-                rs.getInt("correct_count")
-        ), userId);
+                rs.getInt("correct_count"),
+                rs.getInt("completed_steps"),
+                rs.getInt("total_steps")
+        ), userId, userId, userId);
     }
 
     private int learningStreak(long userId) {
@@ -590,12 +672,11 @@ public class LearningController {
         ), userId);
     }
 
-    private DiagnosisSummaryResponse latestDiagnosis(long userId, long subjectId) {
+    private DiagnosisSummaryResponse latestDiagnosis(long userId) {
         return jdbcTemplate.query("""
                 SELECT id, total_questions, correct_answers, completed_at
-                  FROM diagnosis_attempts
+                 FROM diagnosis_attempts
                  WHERE user_id = ?
-                   AND subject_id = ?
                    AND attempt_status = 'COMPLETED'
                    AND DATE(completed_at) = CURRENT_DATE
                  ORDER BY completed_at DESC, id DESC
@@ -605,7 +686,7 @@ public class LearningController {
                 rs.getInt("total_questions"),
                 rs.getInt("correct_answers"),
                 rs.getTimestamp("completed_at").toLocalDateTime()
-        ), userId, subjectId).stream().findFirst().orElse(null);
+        ), userId).stream().findFirst().orElse(null);
     }
 
     private SubjectResponse findActiveSubject(String code) {
@@ -621,14 +702,14 @@ public class LearningController {
         ));
     }
 
-    private Long findTodayPlanId(long userId) {
+    private Long findTodayPlanId(long userId, long subjectId) {
         return jdbcTemplate.query("""
                 SELECT id
                   FROM daily_plans
-                 WHERE user_id = ? AND plan_date = CURRENT_DATE
+                 WHERE user_id = ? AND subject_id = ? AND plan_date = CURRENT_DATE
                  ORDER BY id DESC
                  LIMIT 1
-                """, (rs, rowNum) -> rs.getLong("id"), userId)
+                """, (rs, rowNum) -> rs.getLong("id"), userId, subjectId)
                 .stream().findFirst().orElse(null);
     }
 
@@ -802,6 +883,7 @@ public class LearningController {
     public record LearningStateResponse(
             List<ProfileSubjectResponse> profile,
             PlanResponse plan,
+            List<PlanResponse> plans,
             TodayStatsResponse stats,
             DiagnosisSummaryResponse diagnosis
     ) {}
@@ -823,6 +905,17 @@ public class LearningController {
             String content,
             String status,
             LocalDateTime completedAt
+    ) {}
+
+    public record PlanHistoryResponse(
+            long id,
+            LocalDate planDate,
+            String title,
+            String status,
+            String subjectCode,
+            String subjectName,
+            int completedSteps,
+            int totalSteps
     ) {}
 
     public record StepUpdateRequest(boolean completed) {}
@@ -849,9 +942,12 @@ public class LearningController {
     public record SubjectAccuracyResponse(
             String subjectCode,
             String subjectName,
+            String learningLevel,
             int attemptCount,
             int solvedCount,
-            int correctCount
+            int correctCount,
+            int completedSteps,
+            int totalSteps
     ) {}
 
     public record WrongNoteResponse(

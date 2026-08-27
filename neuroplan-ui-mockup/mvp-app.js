@@ -27,6 +27,9 @@
     isAdmin: false,
     subjects: [],
     subjectLevels: {},
+    activeSubjectCode: "",
+    quizSubjectCode: "",
+    plans: [],
     planId: null,
     planSteps: [],
     planGenerated: false,
@@ -39,7 +42,8 @@
       weekly: { solvedCount: 0, correctCount: 0, completedStepCount: 0 },
       dailyStats: [], subjectStats: [], streakDays: 0, unresolvedWrongNotes: 0
     },
-    wrongNotes: []
+    wrongNotes: [],
+    planHistory: []
   };
   const fallbackQuestions = [
     {
@@ -98,6 +102,10 @@
   let answerChecked = false;
   let toastTimer;
   let adminOverview = null;
+  let adminSubjects = [];
+  let adminSubjectStats = [];
+  let adminQuestions = [];
+  let editingAdminQuestionId = null;
 
   function loadState() {
     try {
@@ -109,7 +117,9 @@
         tasks: Array.isArray(saved.tasks) ? saved.tasks.slice(0, 3) : [false, false, false],
         stats: { ...defaultState.stats, ...(saved.stats || {}) },
         dashboard: { ...defaultState.dashboard, ...(saved.dashboard || {}) },
-        wrongNotes: Array.isArray(saved.wrongNotes) ? saved.wrongNotes : []
+        wrongNotes: Array.isArray(saved.wrongNotes) ? saved.wrongNotes : [],
+        plans: Array.isArray(saved.plans) ? saved.plans : [],
+        planHistory: Array.isArray(saved.planHistory) ? saved.planHistory : []
       };
     } catch (_) {
       return { ...defaultState, tasks: [false, false, false] };
@@ -163,14 +173,42 @@
   function showLearningPage() {
     $("#adminPage").hidden = true;
     $("#dashboard").hidden = false;
+    $("#categoryNav").hidden = false;
+    showPage("dashboard");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function showPage(page) {
+    if (!state.authenticated && page !== "dashboard") {
+      setAuthMode("login");
+      openModal("authModal");
+      toast("로그인 후 이용할 수 있습니다.");
+      return;
+    }
+    $$('[data-page-section]').forEach(section => { section.hidden = section.dataset.pageSection !== page; });
+    $$('[data-page]').forEach(button => button.classList.toggle("active", button.dataset.page === page));
+    if (page === "history") await loadPlanHistory();
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function loadAdminOverview() {
     if (!state.isAdmin) return null;
-    adminOverview = apiConfig.enabled
-      ? await apiRequest("/admin/overview")
-      : {
+    if (apiConfig.enabled) {
+      const query = encodeURIComponent($("#adminUserQuery")?.value.trim() || "");
+      const status = encodeURIComponent($("#adminUserStatus")?.value || "");
+      const [overview, userPage, stats, subjects, questions] = await Promise.all([
+        apiRequest("/admin/overview"),
+        apiRequest(`/admin/users?query=${query}&status=${status}&page=0&size=50`),
+        apiRequest("/admin/statistics/subjects"),
+        apiRequest("/admin/subjects"),
+        apiRequest("/admin/questions")
+      ]);
+      adminOverview = { ...overview, recentUsers: userPage.content };
+      adminSubjectStats = stats;
+      adminSubjects = subjects;
+      adminQuestions = questions;
+    } else {
+      adminOverview = {
           adminUserId: 1,
           adminEmail: state.userEmail,
           users: { total: 1, active: 1, locked: 0, withdrawn: 0 },
@@ -183,6 +221,10 @@
             createdAt: new Date().toISOString(), lastSessionAt: new Date().toISOString()
           }]
         };
+      adminSubjectStats = [];
+      adminSubjects = subjectCatalog.map(subject => ({ ...subject, active: true }));
+      adminQuestions = [];
+    }
     renderAdminOverview();
     return adminOverview;
   }
@@ -230,12 +272,47 @@
             <td>${user.id === adminOverview.adminUserId
               ? '<span class="account-badge active">현재 관리자</span>'
               : `<div class="admin-user-actions">
+                  <button class="button secondary" type="button" data-user-learning="${user.id}">학습현황</button>
                   <button class="button secondary" type="button" data-admin-status="ACTIVE" data-user-id="${user.id}">활성</button>
                   <button class="button secondary" type="button" data-admin-status="LOCKED" data-user-id="${user.id}">잠금</button>
                   <button class="button secondary" type="button" data-admin-status="WITHDRAWN" data-user-id="${user.id}">탈퇴</button>
                 </div>`}</td>
           </tr>`).join("")
       : '<tr><td colspan="6">표시할 회원이 없습니다.</td></tr>';
+    $("#adminSubjectStats").innerHTML = adminSubjectStats.length
+      ? adminSubjectStats.map(item => {
+          const rate = item.solvedCount ? Math.round((item.correctCount / item.solvedCount) * 100) : 0;
+          return `<div class="subject-stat-row"><div><strong>${escapeHtml(item.subjectName)}</strong><div class="subject-stat-track"><span style="width:${rate}%"></span></div><span class="metric-caption">학습자 ${item.learnerCount}명 · 풀이 ${item.solvedCount}개</span></div><em>${rate}%</em></div>`;
+        }).join("")
+      : '<span class="metric-caption">집계된 과목 통계가 없습니다.</span>';
+    $("#adminQuestionSubject").innerHTML = adminSubjects.filter(item => item.active).map(item => `<option value="${item.id}">${escapeHtml(item.name)} (${escapeHtml(item.code)})</option>`).join("");
+    $("#adminSubjectList").innerHTML = adminSubjects.map(item => `<article class="history-item"><div><strong>${escapeHtml(item.name)}</strong><p>${escapeHtml(item.code)} · ${item.active ? "활성" : "비활성"}</p></div><button class="button secondary small" type="button" data-admin-subject-active="${item.id}" data-next-active="${!item.active}">${item.active ? "비활성화" : "활성화"}</button></article>`).join("");
+    $("#adminQuestionList").innerHTML = adminQuestions.map(item => `<article class="history-item"><div><strong>#${item.questionNo} ${escapeHtml(item.questionText)}</strong><p>${escapeHtml(item.difficulty)} · ${item.active ? "출제 중" : "비활성"}</p></div><div class="admin-user-actions"><button class="button secondary small" type="button" data-admin-question-edit="${item.id}">수정</button><button class="button secondary small" type="button" data-admin-question-active="${item.id}" data-next-active="${!item.active}">${item.active ? "비활성화" : "활성화"}</button></div></article>`).join("") || '<span class="metric-caption">등록된 문제가 없습니다.</span>';
+  }
+
+  function resetAdminQuestionForm() {
+    editingAdminQuestionId = null;
+    $("#adminQuestionForm").reset();
+    $("#adminQuestionSubmit").textContent = "문제 등록";
+    $("#adminQuestionCancel").hidden = true;
+    delete $("#adminQuestionForm").dataset.editingActive;
+  }
+
+  async function editAdminQuestion(questionId) {
+    const detail = await apiRequest(`/admin/questions/${questionId}`);
+    editingAdminQuestionId = detail.id;
+    $("#adminQuestionSubject").value = String(detail.subjectId);
+    $("#adminQuestionNo").value = String(detail.questionNo);
+    $("#adminQuestionText").value = detail.questionText;
+    $("#adminQuestionOptions").value = detail.options
+      .map(option => `${option.correct ? "*" : ""}${option.text}`)
+      .join("\n");
+    $("#adminQuestionExplanation").value = detail.explanation;
+    $("#adminQuestionForm").dataset.editingActive = String(detail.active);
+    $("#adminQuestionSubmit").textContent = "문제 수정 저장";
+    $("#adminQuestionCancel").hidden = false;
+    $("#adminQuestionForm").scrollIntoView({ behavior: "smooth", block: "center" });
+    $("#adminQuestionText").focus();
   }
 
   async function openAdminPage() {
@@ -244,6 +321,7 @@
     try {
       await loadAdminOverview();
       $("#dashboard").hidden = true;
+      $("#categoryNav").hidden = true;
       $("#adminPage").hidden = false;
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (error) {
@@ -288,6 +366,8 @@
   function applyProfile(profile = []) {
     state.subjects = profile.map(item => item.subjectCode);
     state.subjectLevels = Object.fromEntries(profile.map(item => [item.subjectCode, item.levelLabel]));
+    if (!state.subjects.includes(state.activeSubjectCode)) state.activeSubjectCode = state.subjects[0] || "";
+    if (!state.subjects.includes(state.quizSubjectCode)) state.quizSubjectCode = state.subjects[0] || "";
   }
 
   function applyPlan(plan) {
@@ -300,6 +380,16 @@
     });
   }
 
+  function selectActivePlan(code) {
+    state.activeSubjectCode = code || state.subjects[0] || "";
+    applyPlan((state.plans || []).find(plan => plan.subjectCode === state.activeSubjectCode) || null);
+  }
+
+  function applyPlans(plans = []) {
+    state.plans = Array.isArray(plans) ? plans : [];
+    selectActivePlan(state.activeSubjectCode);
+  }
+
   async function loadLearningState() {
     const [subjects, learning, dashboard, wrongNotes] = await Promise.all([
       apiRequest("/learning/subjects"),
@@ -309,7 +399,7 @@
     ]);
     subjectCatalog = subjects;
     applyProfile(learning.profile);
-    applyPlan(learning.plan);
+    applyPlans(learning.plans || (learning.plan ? [learning.plan] : []));
     state.stats = learning.stats || { solvedCount: 0, correctCount: 0, completedStepCount: 0 };
     state.quizFinished = Boolean(learning.diagnosis);
     state.quizCorrect = learning.diagnosis?.correctAnswers || 0;
@@ -317,6 +407,18 @@
     state.dashboard = { ...defaultState.dashboard, ...(dashboard || {}) };
     state.wrongNotes = Array.isArray(wrongNotes) ? wrongNotes : [];
     renderSubjectChoices();
+  }
+
+  async function loadPlanHistory() {
+    if (!state.authenticated) return;
+    try {
+      state.planHistory = apiConfig.enabled
+        ? await apiRequest("/learning/plans/history?days=30")
+        : state.planHistory;
+      renderPlanHistory();
+    } catch (error) {
+      toast(error.message);
+    }
   }
 
   async function restoreSession() {
@@ -369,6 +471,28 @@
       </section>`).join("");
   }
 
+  function renderSubjectTabs() {
+    const tabs = state.subjects.map(code => `
+      <button class="plan-subject-tab${state.activeSubjectCode === code ? " active" : ""}" type="button" data-plan-subject="${escapeHtml(code)}">
+        ${escapeHtml(subjectName(code))} · ${escapeHtml(state.subjectLevels[code])}
+      </button>`).join("");
+    $("#planSubjectTabs").innerHTML = tabs || '<span class="metric-caption">학습 프로필에서 과목을 선택해 주세요.</span>';
+    $("#quizSubjectTabs").innerHTML = state.subjects.map(code => `
+      <button class="plan-subject-tab${state.quizSubjectCode === code ? " active" : ""}" type="button" data-quiz-subject="${escapeHtml(code)}">
+        ${escapeHtml(subjectName(code))}
+      </button>`).join("") || '<span class="metric-caption">학습 프로필에서 과목을 선택해 주세요.</span>';
+    $("#quizLaunchTitle").textContent = state.quizSubjectCode
+      ? `${subjectName(state.quizSubjectCode)} 확인 문제`
+      : "과목을 선택해 주세요";
+  }
+
+  function renderPlanHistory() {
+    $("#planHistoryList").innerHTML = state.planHistory.length
+      ? state.planHistory.map(item => `
+          <article class="history-item"><div><strong>${escapeHtml(item.subjectName)} · ${escapeHtml(item.title)}</strong><p>${escapeHtml(item.planDate)} · ${escapeHtml(item.status)}</p></div><span class="today-tag">${item.completedSteps}/${item.totalSteps}단계</span></article>`).join("")
+      : '<div class="empty-state"><div><strong>아직 학습 기록이 없습니다.</strong><span>플랜을 생성하면 날짜별 기록이 표시됩니다.</span></div></div>';
+  }
+
   function currentStep() {
     if (!state.authenticated) return 1;
     if (!hasCompleteProfile()) return 2;
@@ -409,20 +533,28 @@
     $("#subjectStatList").innerHTML = (dashboard.subjectStats || []).length
       ? dashboard.subjectStats.map(item => {
           const rate = item.solvedCount ? Math.round((item.correctCount / item.solvedCount) * 100) : 0;
-          return `<div class="subject-stat-row"><div><strong>${escapeHtml(item.subjectName)}</strong><div class="subject-stat-track"><span style="width:${rate}%"></span></div></div><em>${rate}%</em></div>`;
+          const progress = item.totalSteps ? Math.round((item.completedSteps / item.totalSteps) * 100) : 0;
+          return `<div class="subject-stat-row"><div><strong>${escapeHtml(item.subjectName)} · ${escapeHtml(item.learningLevel || "")}</strong><div class="subject-stat-track"><span style="width:${progress}%"></span></div><span class="metric-caption">플랜 ${item.completedSteps}/${item.totalSteps}단계 · 문제 ${item.solvedCount}개 · 정답률 ${rate}%</span></div><em>${progress}%</em></div>`;
         }).join("")
-      : '<span class="metric-caption">문제를 풀면 과목별 정답률이 나타납니다.</span>';
+      : '<span class="metric-caption">과목을 설정하면 과목별 진행률이 나타납니다.</span>';
   }
 
   function renderWrongNotes() {
-    const notes = state.wrongNotes || [];
-    const pending = notes.filter(note => !note.relearned).length;
+    const allNotes = state.wrongNotes || [];
+    const subjectFilter = $("#wrongSubjectFilter").value;
+    const statusFilter = $("#wrongStatusFilter").value;
+    const notes = allNotes.filter(note =>
+      (!subjectFilter || note.subjectCode === subjectFilter) &&
+      (statusFilter === "all" || (statusFilter === "done" ? note.relearned : !note.relearned))
+    );
+    const pending = allNotes.filter(note => !note.relearned).length;
     $("#wrongNoteCount").textContent = `미해결 ${pending}개`;
     $("#wrongNoteList").innerHTML = notes.length
       ? notes.map(note => `
           <article class="wrong-note-item${note.relearned ? " relearned" : ""}">
             <div class="wrong-note-top"><div><span class="wrong-note-subject">${escapeHtml(note.subjectName)} · 누적 오답 ${note.wrongCount}회</span><p class="wrong-note-question">${escapeHtml(note.questionText)}</p></div><span class="wrong-note-status${note.relearned ? "" : " pending"}">${note.relearned ? "재학습 완료" : "재학습 필요"}</span></div>
-            <p class="wrong-note-meta">내 답: ${escapeHtml(note.selectedOptionText || "기록 없음")} · 정답: ${escapeHtml(note.correctOptionText)}<br>해설: ${escapeHtml(note.explanation)}</p>
+            <div class="wrong-note-answer"><strong>내 답</strong>: ${escapeHtml(note.selectedOptionText || "기록 없음")}<br><strong>정답</strong>: ${escapeHtml(note.correctOptionText)}</div>
+            <p class="wrong-note-explanation"><strong>해설</strong>: ${escapeHtml(note.explanation)}</p>
             ${note.relearned ? "" : `<button class="button secondary small" type="button" data-relearn-question="${note.questionId}">재학습 완료로 표시</button>`}
           </article>`).join("")
       : '<div class="empty-state"><div><strong>아직 쌓인 오답 노트가 없어요.</strong><span>문제 풀이 후 오답이 자동으로 기록됩니다.</span></div></div>';
@@ -468,6 +600,9 @@
     $("#subjectTags").innerHTML = hasProfile
       ? state.subjects.map(code => `<span class="subject-tag">${escapeHtml(subjectName(code))} · ${escapeHtml(state.subjectLevels[code])}</span>`).join("")
       : '<span class="subject-tag">과목을 선택해 주세요</span>';
+    const currentWrongFilter = $("#wrongSubjectFilter").value;
+    $("#wrongSubjectFilter").innerHTML = '<option value="">전체 과목</option>' + state.subjects.map(code => `<option value="${escapeHtml(code)}">${escapeHtml(subjectName(code))}</option>`).join("");
+    $("#wrongSubjectFilter").value = state.subjects.includes(currentWrongFilter) ? currentWrongFilter : "";
     $("#setupProgressText").textContent = hasProfile ? "100%" : state.authenticated ? "50%" : "0%";
     $("#setupProgressBar").style.width = hasProfile ? "100%" : state.authenticated ? "50%" : "0%";
     $("#generatePlan").disabled = !hasProfile;
@@ -476,7 +611,7 @@
     $("#planEmpty").hidden = state.planGenerated;
     $("#planContent").hidden = !state.planGenerated;
     if (state.planGenerated) {
-      const focus = state.subjects[0] || "KUBERNETES";
+      const focus = state.activeSubjectCode || state.subjects[0] || "KUBERNETES";
       const focusLevel = state.subjectLevels[focus] || "초급";
       $("#focusSubject").textContent = `${subjectName(focus)} · ${focusLevel}`;
       const fallbackTitles = [`${subjectName(focus)} 핵심 개념 익히기`, `${subjectName(focus)} 미니 실습 따라하기`, `${subjectName(focus)} 핵심 내용 복습`];
@@ -486,13 +621,13 @@
         $(`#task${suffix}Title`).textContent = planStep?.title || fallbackTitles[index];
         $(`#task${suffix}Content`).textContent = planStep?.content || fallbackContents[index];
       });
-      $("#planBasis").textContent = `${profileLabel()} 설정 기준`;
+      $("#planBasis").textContent = `${subjectName(focus)} · ${focusLevel} 설정 기준`;
       $("#planStatus").textContent = state.quizFinished ? "학습 완료" : completed ? "학습 중" : "플랜 준비됨";
       $("#planNote").textContent = state.quizFinished
         ? "오늘의 학습 결과가 대시보드에 반영되었습니다."
         : completed === 3 ? "학습을 모두 마쳤어요. 확인 문제에 도전해 보세요." : `3단계 중 ${completed}단계를 완료했습니다.`;
     } else {
-      const focus = state.subjects[0];
+      const focus = state.activeSubjectCode || state.subjects[0];
       $("#focusSubject").textContent = hasProfile ? `${subjectName(focus)} · ${state.subjectLevels[focus]}` : "과목을 먼저 선택해 주세요";
       $("#planStatus").textContent = hasProfile ? "생성 대기" : "설정 전";
       $("#planNote").textContent = hasProfile ? "오늘의 플랜 생성 버튼을 눌러 학습을 시작하세요." : "회원가입 후 학습 프로필을 설정하면 맞춤 플랜을 생성할 수 있어요.";
@@ -505,8 +640,8 @@
       button.setAttribute("aria-pressed", String(done));
       button.setAttribute("aria-label", `${index + 1}단계 ${done ? "완료 취소" : "완료"}`);
     });
-    $("#quizButton").disabled = !tasksDone;
-    $("#quizGuide").textContent = state.quizFinished ? "풀이 결과가 대시보드에 반영되었습니다." : tasksDone ? "준비가 끝났어요. 5문제를 풀어 보세요." : "3단계를 모두 완료하면 문제 풀이가 열립니다.";
+    $("#quizButton").disabled = !hasProfile || !state.quizSubjectCode;
+    $("#quizGuide").textContent = state.quizFinished ? "최근 풀이 결과가 대시보드에 반영되었습니다. 언제든 다시 풀 수 있어요." : "플랜 체크 여부와 관계없이 5문제를 바로 풀 수 있습니다.";
 
     if (!state.authenticated) $("#mainAction").textContent = "회원가입하고 시작하기";
     else if (!hasProfile) $("#mainAction").textContent = "과목·수준 설정하기";
@@ -516,6 +651,8 @@
     else $("#mainAction").textContent = "오늘 학습 완료";
 
     renderDashboardDetails();
+    renderSubjectTabs();
+    renderPlanHistory();
     renderWrongNotes();
   }
 
@@ -552,7 +689,9 @@
     button.disabled = true;
     try {
       if (apiConfig.enabled) {
-        applyPlan(await apiRequest("/learning/plans", { method: "POST" }));
+        const plan = await apiRequest(`/learning/plans?subjectCode=${encodeURIComponent(state.activeSubjectCode)}`, { method: "POST" });
+        state.plans = [...state.plans.filter(item => item.subjectCode !== plan.subjectCode), plan];
+        selectActivePlan(plan.subjectCode);
       } else {
         state.planId = 1;
         state.planGenerated = true;
@@ -564,7 +703,7 @@
       state.quizCorrect = 0;
       state.quizTotal = 0;
       updateUI();
-      toast(`${subjectName(state.subjects[0])} 중심의 오늘 학습 플랜을 만들었어요.`);
+      toast(`${subjectName(state.activeSubjectCode)} 중심의 오늘 학습 플랜을 만들었어요.`);
       $("#todayPlanTitle").scrollIntoView({ behavior: "smooth", block: "center" });
     } catch (error) {
       toast(error.message);
@@ -574,7 +713,7 @@
   }
 
   async function startQuiz() {
-    const code = state.subjects[0];
+    const code = state.quizSubjectCode || state.subjects[0];
     if (!code) return;
     $("#quizButton").disabled = true;
     try {
@@ -591,7 +730,7 @@
     } catch (error) {
       toast(error.message);
     } finally {
-      $("#quizButton").disabled = !state.tasks.every(Boolean);
+      $("#quizButton").disabled = !hasCompleteProfile() || !state.quizSubjectCode;
     }
   }
 
@@ -601,7 +740,7 @@
     $("#quizProgressBar").style.width = `${((quizIndex + 1) / questions.length) * 100}%`;
     $("#questionSubject").textContent = `${question.subjectName} · ${question.difficulty}`;
     $("#questionText").textContent = question.text;
-    $("#quizSubjectText").textContent = `${subjectName(state.subjects[0])} 핵심 내용을 확인합니다.`;
+      $("#quizSubjectText").textContent = `${subjectName(state.quizSubjectCode || state.subjects[0])} 핵심 내용을 확인합니다.`;
     $("#answerList").innerHTML = question.options.map((option, index) => `
       <button class="answer" type="button" data-answer="${option.id}">
         <span class="answer-letter">${String.fromCharCode(65 + index)}</span><span>${escapeHtml(option.text)}</span>
@@ -615,6 +754,21 @@
   }
 
   document.addEventListener("click", event => {
+    const pageButton = event.target.closest("[data-page]");
+    if (pageButton) showPage(pageButton.dataset.page);
+
+    const planSubject = event.target.closest("[data-plan-subject]");
+    if (planSubject) {
+      selectActivePlan(planSubject.dataset.planSubject);
+      updateUI();
+    }
+
+    const quizSubject = event.target.closest("[data-quiz-subject]");
+    if (quizSubject) {
+      state.quizSubjectCode = quizSubject.dataset.quizSubject;
+      updateUI();
+    }
+
     const close = event.target.closest("[data-close]");
     if (close) closeModal(close.dataset.close);
 
@@ -713,6 +867,7 @@
         state.subjects = [...draftSubjects];
         state.subjectLevels = Object.fromEntries(state.subjects.map(code => [code, draftSubjectLevels[code]]));
       }
+      state.plans = [];
       applyPlan(null);
       state.quizFinished = false;
       state.quizCorrect = 0;
@@ -743,6 +898,83 @@
     } catch (error) {
       toast(error.message);
     }
+  });
+  $("#adminUserSearchForm").addEventListener("submit", async event => {
+    event.preventDefault();
+    try { await loadAdminOverview(); } catch (error) { toast(error.message); }
+  });
+  $("#adminSubjectForm").addEventListener("submit", async event => {
+    event.preventDefault();
+    if (!apiConfig.enabled) return toast("API 연동 모드에서 사용할 수 있습니다.");
+    try {
+      await apiRequest("/admin/subjects", {
+        method: "POST",
+        body: JSON.stringify({ code: $("#adminSubjectCode").value, name: $("#adminSubjectName").value, active: true })
+      });
+      event.target.reset();
+      await loadAdminOverview();
+      toast("과목을 등록했습니다.");
+    } catch (error) { toast(error.message); }
+  });
+  $("#adminQuestionForm").addEventListener("submit", async event => {
+    event.preventDefault();
+    if (!apiConfig.enabled) return toast("API 연동 모드에서 사용할 수 있습니다.");
+    const options = $("#adminQuestionOptions").value.split(/\r?\n/).map(value => value.trim()).filter(Boolean)
+      .map(value => ({ text: value.replace(/^\*/, "").trim(), correct: value.startsWith("*") }));
+    if (options.length < 2 || options.filter(item => item.correct).length !== 1) {
+      return toast("보기는 2개 이상이고, 정답 표시는 정확히 하나여야 합니다.");
+    }
+    try {
+      const questionId = editingAdminQuestionId;
+      await apiRequest(questionId ? `/admin/questions/${questionId}` : "/admin/questions", {
+        method: questionId ? "PUT" : "POST",
+        body: JSON.stringify({
+          subjectId: Number($("#adminQuestionSubject").value),
+          questionNo: Number($("#adminQuestionNo").value),
+          difficulty: "BEGINNER",
+          questionText: $("#adminQuestionText").value,
+          explanation: $("#adminQuestionExplanation").value,
+          active: questionId ? event.target.dataset.editingActive === "true" : true,
+          options
+        })
+      });
+      resetAdminQuestionForm();
+      await loadAdminOverview();
+      toast(questionId ? "진단 문제를 수정했습니다." : "진단 문제를 등록했습니다.");
+    } catch (error) { toast(error.message); }
+  });
+  $("#adminQuestionCancel").addEventListener("click", resetAdminQuestionForm);
+  $("#wrongSubjectFilter").addEventListener("change", renderWrongNotes);
+  $("#wrongStatusFilter").addEventListener("change", renderWrongNotes);
+  $("#refreshHistory").addEventListener("click", loadPlanHistory);
+  $("#changePasswordForm").addEventListener("submit", async event => {
+    event.preventDefault();
+    const currentPassword = $("#currentPassword").value;
+    const newPassword = $("#newPassword").value;
+    if (newPassword !== $("#confirmNewPassword").value) {
+      $("#passwordMessage").textContent = "새 비밀번호 확인이 일치하지 않습니다.";
+      return;
+    }
+    try {
+      if (apiConfig.enabled) await apiRequest("/auth/password", { method: "PUT", body: JSON.stringify({ currentPassword, newPassword }) });
+      state = { ...defaultState, tasks: [false, false, false] };
+      localStorage.removeItem(storageKey);
+      event.target.reset();
+      showLearningPage();
+      updateUI();
+      toast("비밀번호를 변경했습니다. 새 비밀번호로 다시 로그인해 주세요.");
+    } catch (error) { $("#passwordMessage").textContent = error.message; }
+  });
+  $("#revokeSessionsButton").addEventListener("click", async () => {
+    if (!confirm("모든 기기의 로그인 세션을 종료할까요?")) return;
+    try {
+      if (apiConfig.enabled) await apiRequest("/auth/sessions", { method: "DELETE" });
+      state = { ...defaultState, tasks: [false, false, false] };
+      localStorage.removeItem(storageKey);
+      showLearningPage();
+      updateUI();
+      toast("모든 로그인 세션을 종료했습니다.");
+    } catch (error) { toast(error.message); }
   });
   $("#homeBrand").addEventListener("click", event => {
     event.preventDefault();
@@ -802,8 +1034,8 @@
     if (step === 1) { setAuthMode("signup"); openModal("authModal"); }
     else if (step === 2) openProfile();
     else if (step === 3) generatePlan();
-    else if (step === 4) $("#todayPlanTitle").scrollIntoView({ behavior: "smooth", block: "center" });
-    else if (step === 5) startQuiz();
+    else if (step === 4) showPage("plan");
+    else if (step === 5) showPage("quiz");
     else toast("오늘 학습을 모두 완료했어요. 수고하셨습니다!");
   });
 
@@ -814,9 +1046,11 @@
       button.disabled = true;
       try {
         if (apiConfig.enabled) {
-          applyPlan(await apiRequest(`/learning/plans/${state.planId}/steps/${index + 1}`, {
+          const plan = await apiRequest(`/learning/plans/${state.planId}/steps/${index + 1}`, {
             method: "PATCH", body: JSON.stringify({ completed })
-          }));
+          });
+          state.plans = [...state.plans.filter(item => item.subjectCode !== plan.subjectCode), plan];
+          selectActivePlan(plan.subjectCode);
           state.stats.completedStepCount = state.tasks.filter(Boolean).length;
         } else {
           state.tasks[index] = completed;
@@ -872,7 +1106,7 @@
     try {
       if (apiConfig.enabled) {
         const result = await apiRequest("/learning/diagnosis/attempts", {
-          method: "POST", body: JSON.stringify({ subjectCode: state.subjects[0], answers: quizAnswers })
+          method: "POST", body: JSON.stringify({ subjectCode: state.quizSubjectCode || state.subjects[0], answers: quizAnswers })
         });
         state.quizCorrect = result.correctAnswers;
         state.quizTotal = result.totalQuestions;
@@ -914,6 +1148,50 @@
   });
 
   document.addEventListener("click", async event => {
+    const subjectAction = event.target.closest("[data-admin-subject-active]");
+    if (subjectAction && state.isAdmin && apiConfig.enabled) {
+      const subject = adminSubjects.find(item => item.id === Number(subjectAction.dataset.adminSubjectActive));
+      if (!subject) return;
+      subjectAction.disabled = true;
+      try {
+        await apiRequest(`/admin/subjects/${subject.id}`, { method: "PUT", body: JSON.stringify({ code: subject.code, name: subject.name, active: subjectAction.dataset.nextActive === "true" }) });
+        await loadAdminOverview();
+        toast("과목 사용 상태를 변경했습니다.");
+      } catch (error) { toast(error.message); }
+      finally { subjectAction.disabled = false; }
+      return;
+    }
+    const questionEditAction = event.target.closest("[data-admin-question-edit]");
+    if (questionEditAction && state.isAdmin && apiConfig.enabled) {
+      questionEditAction.disabled = true;
+      try {
+        await editAdminQuestion(Number(questionEditAction.dataset.adminQuestionEdit));
+      } catch (error) { toast(error.message); }
+      finally { questionEditAction.disabled = false; }
+      return;
+    }
+    const questionAction = event.target.closest("[data-admin-question-active]");
+    if (questionAction && state.isAdmin && apiConfig.enabled) {
+      questionAction.disabled = true;
+      try {
+        await apiRequest(`/admin/questions/${Number(questionAction.dataset.adminQuestionActive)}/active`, { method: "PATCH", body: JSON.stringify({ active: questionAction.dataset.nextActive === "true" }) });
+        await loadAdminOverview();
+        toast("문제 출제 상태를 변경했습니다.");
+      } catch (error) { toast(error.message); }
+      finally { questionAction.disabled = false; }
+      return;
+    }
+    const learningAction = event.target.closest("[data-user-learning]");
+    if (learningAction && state.isAdmin && apiConfig.enabled) {
+      learningAction.disabled = true;
+      try {
+        const detail = await apiRequest(`/admin/users/${Number(learningAction.dataset.userLearning)}/learning`);
+        const rate = detail.solvedCount ? Math.round((detail.correctCount / detail.solvedCount) * 100) : 0;
+        alert(`${detail.nickname} (${detail.email})\n과목: ${detail.subjects.join(", ") || "미설정"}\n완료 플랜: ${detail.completedPlanCount}/${detail.planCount}\n풀이: ${detail.solvedCount}개 · 정답률: ${rate}%\n미해결 오답: ${detail.unresolvedWrongNotes}개`);
+      } catch (error) { toast(error.message); }
+      finally { learningAction.disabled = false; }
+      return;
+    }
     const action = event.target.closest("[data-admin-status]");
     if (!action || !state.isAdmin || !apiConfig.enabled) return;
     const status = action.dataset.adminStatus;

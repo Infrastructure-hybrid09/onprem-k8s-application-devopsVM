@@ -1,4 +1,4 @@
--- 현재 화면 기능이 사용하는 11개 학습 테이블의 컬럼 존재 여부를 읽기 전용으로 확인합니다.
+-- 현재 화면 기능이 사용하는 10개 학습 테이블의 컬럼 존재 여부를 읽기 전용으로 확인합니다.
 SELECT expected.table_name,
        expected.expected_column_count,
        COUNT(actual.column_name) AS actual_column_count,
@@ -31,3 +31,13 @@ WHERE table_schema = DATABASE()
   )
 ORDER BY table_name, ordinal_position;
 
+-- v0.6.0 과목별 당일 플랜은 같은 날짜에 사용자당 여러 과목 행을 저장합니다.
+-- daily_plans의 UNIQUE 인덱스는 user_id + subject_id + plan_date 조합이어야 합니다.
+SELECT index_name,
+       non_unique,
+       GROUP_CONCAT(column_name ORDER BY seq_in_index) AS indexed_columns
+FROM information_schema.statistics
+WHERE table_schema = DATABASE()
+  AND table_name = 'daily_plans'
+GROUP BY index_name, non_unique
+ORDER BY non_unique, index_name;

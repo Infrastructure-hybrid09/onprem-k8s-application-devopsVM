@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 BUILD_ROOT="$(cd -- "$APP_DIR/.." && pwd)"
 REGISTRY="${REGISTRY:-192.168.34.21:5000/neuroplan}"
-VERSION="${VERSION:-0.5.0}"
+VERSION="${VERSION:-0.6.0}"
 AUTHFILE="${REGISTRY_AUTH_FILE:-$HOME/.config/containers/dockerhub-auth.json}"
 
 command -v podman >/dev/null 2>&1 || { echo "[FAIL] podman not found" >&2; exit 1; }

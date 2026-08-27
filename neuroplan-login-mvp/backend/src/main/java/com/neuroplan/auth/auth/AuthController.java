@@ -5,6 +5,7 @@ import java.util.Locale;
 import java.util.UUID;
 
 import com.neuroplan.auth.auth.dto.AuthResponse;
+import com.neuroplan.auth.auth.dto.ChangePasswordRequest;
 import com.neuroplan.auth.auth.dto.LoginRequest;
 import com.neuroplan.auth.auth.dto.SignupRequest;
 import com.neuroplan.auth.auth.dto.UserResponse;
@@ -30,7 +31,9 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -162,6 +165,38 @@ public class AuthController {
         }
         sessionRepository.revokeAllForUser(user.id(), Instant.now());
         userRepository.updateAccountStatus(user.id(), "WITHDRAWN");
+        cookieService.clear(response);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/password")
+    @Transactional
+    ResponseEntity<Void> changePassword(
+            @Valid @RequestBody ChangePasswordRequest body,
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) {
+        UserRecord user = currentUserService.require(request);
+        if (!passwordEncoder.matches(body.currentPassword(), user.passwordHash())) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "현재 비밀번호가 올바르지 않습니다.");
+        }
+        if (passwordEncoder.matches(body.newPassword(), user.passwordHash())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "새 비밀번호는 현재 비밀번호와 달라야 합니다.");
+        }
+        userRepository.updatePasswordHash(user.id(), passwordEncoder.encode(body.newPassword()));
+        sessionRepository.revokeAllForUser(user.id(), Instant.now());
+        cookieService.clear(response);
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping("/sessions")
+    @Transactional
+    ResponseEntity<Void> revokeAllSessions(
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) {
+        UserRecord user = currentUserService.require(request);
+        sessionRepository.revokeAllForUser(user.id(), Instant.now());
         cookieService.clear(response);
         return ResponseEntity.noContent().build();
     }
