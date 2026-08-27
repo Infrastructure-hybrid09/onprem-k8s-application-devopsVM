@@ -1,0 +1,34 @@
+# 변경 이력
+
+## 0.3.0
+
+- 학습 여정 패널 제거 및 프로필 준비 게이지/플랜 버튼 간격 보정
+- 인증 모달 배경 클릭 닫기 방지 및 이름·이메일·비밀번호 입력값 자동 초기화
+- 과목별 수준을 최대 3개까지 `subjects`, `user_subjects`에 저장
+- 오늘 플랜/3단계 완료를 `daily_plans`, `plan_steps`에 저장
+- 5문제 진단 결과를 `diagnosis_questions`, `question_options`, `diagnosis_attempts`, `diagnosis_answers`에 저장
+- 오답을 `wrong_notes`, 일별 완료·정답 통계를 `study_daily_stats`에 반영
+- 반복 실행 가능한 기준 과목/진단 문제 시드와 전체 학습 스키마 검증 추가
+
+## 0.2.0
+
+- 기존 팀 DB 테이블을 원본으로 사용하고 애플리케이션 DDL 실행을 완전히 비활성화
+- 기존 `infraready` DB와 최소 CRUD 권한의 `ir_app` 계정을 사용하도록 연결 설정 통일
+- 테이블 생성·계정 생성 SQL을 제거하고 읽기 전용 스키마 점검 SQL만 제공
+- TLS 미구성 MaxScale 4006 환경에 맞춰 JDBC `sslMode=disable`과 안전한 CLI 점검 스크립트 추가
+- HTTPRoute의 중첩된 `status.parents[].conditions`를 올바르게 검사하도록 배포 대기 로직 수정
+- DevOps의 DMZ 경로 부재를 고려해 Smoke Test가 Gateway NodePort로 안전하게 연결되도록 보완
+- `users`를 `nickname`, `account_status`, `created_at`, `updated_at` 명세에 맞춤
+- `jwt_sessions` 기반 Access JWT/Refresh Token 회전 및 로그아웃 폐기 구현
+- Refresh Token 원문 대신 SHA-256 해시 저장
+- 프론트 회원가입 JSON과 응답 필드를 `nickname`으로 통일
+- 메모리 HttpSession 제거, Backend replica를 2개로 확장
+- DB/JWT Secret을 `neuroplan-auth-secrets`로 통합
+- 컨테이너를 비특권 8080, 읽기 전용 Root filesystem, arbitrary UID 호환으로 변경
+- 고정 UID/GID/fsGroup 제거 및 OpenShift `restricted-v2` 호환 보안 컨텍스트 적용
+- 공통 Workload, On-Prem HTTPRoute, ROSA Route Kustomize 오버레이 분리
+- Rootless/JWT 회전까지 확인하는 Smoke test 확장
+
+## 0.1.0
+
+- 정적 Frontend와 Spring Boot 회원가입/로그인 MVP 최초 구성

@@ -1,0 +1,7 @@
+# ROSA 배포 전 실제 연결 가능한 DB/MaxScale 주소로 교체합니다.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: neuroplan-backend-config
+data:
+  DB_URL: jdbc:mariadb://REPLACE_ROSA_DB_HOST:3306/infraready

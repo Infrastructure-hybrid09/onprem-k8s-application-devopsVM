@@ -1,0 +1,38 @@
+# ROSA 배포 전 app.example.com을 실제 Route 도메인으로 교체합니다.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: neuroplan-api
+  labels:
+    app.kubernetes.io/part-of: neuroplan-login-mvp
+spec:
+  host: app.example.com
+  path: /api
+  to:
+    kind: Service
+    name: neuroplan-backend
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: neuroplan-frontend
+  labels:
+    app.kubernetes.io/part-of: neuroplan-login-mvp
+spec:
+  host: app.example.com
+  path: /
+  to:
+    kind: Service
+    name: neuroplan-frontend
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None

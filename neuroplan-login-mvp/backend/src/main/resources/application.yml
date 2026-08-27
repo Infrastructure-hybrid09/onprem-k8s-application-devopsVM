@@ -1,0 +1,53 @@
+server:
+  port: 8080
+  shutdown: graceful
+  forward-headers-strategy: framework
+
+spring:
+  application:
+    name: neuroplan-auth-api
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  datasource:
+    # 현재 On-Prem MaxScale 4006 리스너는 TLS를 제공하지 않습니다.
+    url: ${DB_URL:jdbc:mariadb://192.168.44.21:4006/infraready?sslMode=disable}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.mariadb.jdbc.Driver
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
+      connection-timeout: 5000
+      validation-timeout: 3000
+  sql:
+    init:
+      # 팀 DB에 이미 생성된 인증/학습 테이블을 사용하며 DDL은 실행하지 않습니다.
+      # 애플리케이션 계정에는 런타임 CRUD 권한만 부여합니다.
+      mode: never
+
+app:
+  auth:
+    issuer: ${JWT_ISSUER:neuroplan-auth}
+    access-token-ttl: ${JWT_ACCESS_TTL:15m}
+    refresh-token-ttl: ${JWT_REFRESH_TTL:7d}
+    secure-cookies: ${AUTH_COOKIE_SECURE:true}
+    jwt-secret-base64: ${JWT_SECRET_BASE64}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+      group:
+        readiness:
+          include: readinessState,db
+
+logging:
+  level:
+    root: INFO
+    com.neuroplan.auth: INFO

@@ -1,0 +1,6 @@
+# Secret이 들어갈 수 있는 로컬 파일
+*.secret.yaml
+.env
+
+# Build output
+backend/target/

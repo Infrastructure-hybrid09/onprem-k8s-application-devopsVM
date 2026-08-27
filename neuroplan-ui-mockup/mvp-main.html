@@ -1,0 +1,1321 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="NeuroPlan 최소 기능 학습 대시보드 프로토타입">
+  <link rel="icon" type="image/png" href="assets/neuroplan-brain-icon.png">
+  <title>NeuroPlan · 오늘의 학습</title>
+  <style>
+    :root {
+      --navy: #2f5648;
+      --ink: #30463e;
+      --muted: #71847b;
+      --line: #d5e4da;
+      --paper: #fffefa;
+      --canvas: #f2f8f3;
+      --blue: #78a98e;
+      --blue-dark: #4f7d67;
+      --blue-soft: #e7f2ea;
+      --sky: #add2bb;
+      --sky-soft: #edf7f0;
+      --teal: #5e9c7b;
+      --teal-soft: #e3f2e8;
+      --yellow: #edce7e;
+      --yellow-soft: #fff7df;
+      --orange: #d6a268;
+      --orange-soft: #faeee0;
+      --danger: #c46f63;
+      --danger-soft: #fbedeb;
+      --shadow: 0 18px 50px rgba(59, 100, 79, .14);
+      --radius: 24px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      background:
+        radial-gradient(circle at 6% 4%, rgba(173,210,187,.34), transparent 27rem),
+        radial-gradient(circle at 95% 12%, rgba(237,206,126,.2), transparent 25rem),
+        var(--canvas);
+      color: var(--ink);
+      font-family: Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", Inter, system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input { font: inherit; }
+    button { color: inherit; }
+    button:focus-visible, input:focus-visible {
+      outline: 3px solid rgba(94,156,123,.28);
+      outline-offset: 2px;
+    }
+    [hidden] { display: none !important; }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      border-bottom: 1px solid rgba(213,228,218,.94);
+      background: rgba(255,254,250,.92);
+      backdrop-filter: blur(14px);
+    }
+    .topbar-inner {
+      width: min(1180px, calc(100% - 40px));
+      min-height: 72px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 11px;
+      text-decoration: none;
+      color: var(--navy);
+      font-size: 19px;
+      font-weight: 900;
+      letter-spacing: -.04em;
+    }
+    .brand-mark {
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      background: #fff;
+      box-shadow: 0 9px 20px rgba(59,100,79,.18);
+    }
+    .brand-mark img { width: 100%; height: 100%; object-fit: cover; display: block; transform: scale(1.22); }
+    .top-actions { display: flex; align-items: center; gap: 10px; }
+    .user-chip {
+      min-height: 42px;
+      padding: 0 13px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--blue-soft);
+      color: var(--blue-dark);
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .user-avatar {
+      width: 27px;
+      height: 27px;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      background: var(--blue);
+    }
+
+    .button {
+      min-height: 43px;
+      padding: 0 16px;
+      border: 1px solid transparent;
+      border-radius: 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      background: var(--paper);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 800;
+      transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
+    }
+    .button:hover { transform: translateY(-1px); }
+    .button.primary {
+      color: #fff;
+      background: var(--blue);
+      box-shadow: 0 10px 22px rgba(79,125,103,.22);
+    }
+    .button.primary:hover { background: var(--blue-dark); }
+    .button.secondary { border-color: var(--line); }
+    .button.secondary:hover { background: #f2f8f3; }
+    .button.ghost { color: var(--blue); background: transparent; }
+    .button.block { width: 100%; }
+    .button.small { min-height: 36px; padding: 0 12px; border-radius: 11px; font-size: 12px; }
+    .button:disabled { opacity: .45; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    .dashboard {
+      width: min(1180px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 36px 0 72px;
+    }
+    .hero {
+      position: relative;
+      overflow: hidden;
+      min-height: 278px;
+      padding: 38px;
+      border-radius: 30px;
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(300px, .85fr);
+      gap: 32px;
+      color: #fff;
+      background:
+        linear-gradient(125deg, rgba(47,86,72,.99), rgba(120,169,142,.97)),
+        var(--navy);
+      box-shadow: var(--shadow);
+    }
+    .hero::before, .hero::after {
+      content: "";
+      position: absolute;
+      border-radius: 50%;
+      pointer-events: none;
+    }
+    .hero::before {
+      width: 270px;
+      height: 270px;
+      right: -70px;
+      top: -95px;
+      background: rgba(220,241,228,.24);
+    }
+    .hero::after {
+      width: 150px;
+      height: 150px;
+      left: 48%;
+      bottom: -95px;
+      background: rgba(237,206,126,.28);
+    }
+    .hero-copy, .hero-plan { position: relative; z-index: 1; }
+    .eyebrow {
+      margin: 0 0 10px;
+      color: #d8f1df;
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    .hero h1 {
+      max-width: 640px;
+      margin: 0;
+      font-size: clamp(30px, 4vw, 48px);
+      line-height: 1.16;
+      letter-spacing: -.055em;
+    }
+    .hero-copy > p:not(.eyebrow) {
+      max-width: 580px;
+      margin: 17px 0 25px;
+      color: #edf8f0;
+      font-size: 15px;
+      line-height: 1.7;
+    }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+    .hero .button.primary { color: var(--navy); background: #f5d991; box-shadow: 0 10px 24px rgba(237,206,126,.22); }
+    .hero .button.primary:hover { background: #ffe6a5; }
+    .hero .button.secondary { color: #fff; border-color: rgba(255,255,255,.25); background: rgba(255,255,255,.08); }
+    .hero-plan {
+      align-self: stretch;
+      padding: 23px;
+      border: 1px solid rgba(255,255,255,.18);
+      border-radius: 23px;
+      background: rgba(255,255,255,.1);
+      backdrop-filter: blur(10px);
+    }
+    .hero-plan-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .hero-plan-top strong { font-size: 14px; }
+    .status-pill {
+      min-height: 27px;
+      padding: 0 9px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      color: #325947;
+      background: #dff1e4;
+      font-size: 11px;
+      font-weight: 900;
+    }
+    .plan-focus { margin: 24px 0 18px; }
+    .plan-focus small { display: block; color: #d7eadc; font-size: 11px; }
+    .plan-focus strong { display: block; margin-top: 7px; font-size: 22px; letter-spacing: -.04em; }
+    .hero-progress-label { margin-bottom: 8px; display: flex; justify-content: space-between; color: #edf8f0; font-size: 12px; }
+    .progress-track { height: 9px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.18); }
+    .progress-track > span { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--yellow); transition: width .35s ease; }
+    .hero-plan-note { margin: 15px 0 0; color: #d7eadc; font-size: 12px; line-height: 1.55; }
+
+    .metric-grid { margin-top: 20px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .metric-card, .content-card {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--paper);
+      box-shadow: 0 7px 22px rgba(59,100,79,.065);
+    }
+    .metric-card { min-height: 142px; padding: 20px; }
+    .metric-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .metric-icon {
+      width: 39px;
+      height: 39px;
+      border-radius: 13px;
+      display: grid;
+      place-items: center;
+      color: var(--blue-dark);
+      background: var(--blue-soft);
+      font-size: 17px;
+      font-weight: 900;
+    }
+    .metric-card:nth-child(2) .metric-icon { color: #4f7d67; background: var(--teal-soft); }
+    .metric-card:nth-child(3) .metric-icon { color: #a36e00; background: var(--yellow-soft); }
+    .metric-label { color: var(--muted); font-size: 12px; font-weight: 800; }
+    .metric-value { margin-top: 19px; font-size: 31px; font-weight: 900; letter-spacing: -.06em; }
+    .metric-value small { margin-left: 3px; color: var(--muted); font-size: 13px; letter-spacing: -.02em; }
+    .metric-caption { margin-top: 6px; color: var(--muted); font-size: 11px; }
+
+    .main-grid { margin-top: 16px; display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(300px, .65fr); gap: 16px; }
+    .content-card { padding: 24px; }
+    .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+    .card-head h2 { margin: 0; font-size: 18px; letter-spacing: -.04em; }
+    .card-head p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+    .today-tag { padding: 7px 10px; border-radius: 10px; color: #4f7d67; background: var(--teal-soft); font-size: 11px; font-weight: 900; white-space: nowrap; }
+
+    .timeline { display: grid; gap: 10px; }
+    .timeline-item {
+      display: grid;
+      grid-template-columns: 42px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 14px;
+      padding: 15px;
+      border: 1px solid var(--line);
+      border-radius: 17px;
+      background: #fbfefc;
+    }
+    .timeline-order {
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      color: var(--blue-dark);
+      background: var(--blue-soft);
+      font-size: 13px;
+      font-weight: 900;
+    }
+    .timeline-item:nth-child(2) .timeline-order { color: #4f7d67; background: var(--teal-soft); }
+    .timeline-item:nth-child(3) .timeline-order { color: #9b6710; background: var(--yellow-soft); }
+    .timeline-copy strong { display: block; font-size: 14px; }
+    .timeline-copy span { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; }
+    .check-button {
+      width: 34px;
+      height: 34px;
+      border: 1px solid #c9dad0;
+      border-radius: 11px;
+      display: grid;
+      place-items: center;
+      background: #fff;
+      cursor: pointer;
+      font-weight: 900;
+    }
+    .timeline-item.completed { border-color: #bdd8c8; background: #f4fbf6; }
+    .timeline-item.completed .timeline-copy strong { color: #4f7d67; text-decoration: line-through; }
+    .timeline-item.completed .check-button { color: #fff; border-color: var(--teal); background: var(--teal); }
+
+    .quiz-callout {
+      margin-top: 14px;
+      padding: 18px;
+      border-radius: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      background: linear-gradient(115deg, var(--yellow-soft), #fffdf4);
+    }
+    .quiz-callout strong { display: block; font-size: 14px; }
+    .quiz-callout p { margin: 5px 0 0; color: #7e6b36; font-size: 11px; }
+
+    .profile-summary {
+      padding: 18px;
+      border-radius: 19px;
+      background: var(--sky-soft);
+    }
+    .profile-summary small { color: #5f7a6d; font-size: 11px; }
+    .profile-summary strong { display: block; margin-top: 7px; font-size: 18px; letter-spacing: -.04em; }
+    .subject-tags { margin-top: 13px; display: flex; flex-wrap: wrap; gap: 7px; }
+    .subject-tag { padding: 6px 9px; border-radius: 9px; color: var(--blue-dark); background: #fff; font-size: 11px; font-weight: 800; }
+    .progress-list { margin: 20px 0 22px; display: grid; gap: 17px; }
+    .profile-plan-button { position: static; flex: 0 0 auto; margin-top: 0; }
+    .subject-progress-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; font-size: 12px; }
+    .subject-progress-top strong { font-size: 12px; }
+    .subject-progress-top span { color: var(--muted); }
+    .subject-track { height: 8px; overflow: hidden; border-radius: 999px; background: #e4eee7; }
+    .subject-track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--blue), var(--sky)); transition: width .35s ease; }
+
+    .empty-state {
+      min-height: 205px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      color: var(--muted);
+    }
+    .empty-state strong { display: block; margin-bottom: 7px; color: var(--ink); }
+    .empty-icon {
+      width: 60px;
+      height: 60px;
+      margin: 0 auto 14px;
+      border-radius: 20px;
+      display: grid;
+      place-items: center;
+      color: var(--blue);
+      background: var(--blue-soft);
+      font-size: 23px;
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      padding: 24px;
+      display: grid;
+      place-items: center;
+      background: rgba(47,86,72,.48);
+      backdrop-filter: blur(8px);
+    }
+    .modal {
+      width: min(520px, 100%);
+      max-height: calc(100vh - 48px);
+      overflow-y: auto;
+      border-radius: 27px;
+      background: var(--paper);
+      box-shadow: 0 28px 80px rgba(47,86,72,.25);
+    }
+    .modal.large { width: min(650px, 100%); }
+    .modal-head { padding: 25px 25px 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+    .modal-head h2 { margin: 0; font-size: 22px; letter-spacing: -.045em; }
+    .modal-head p { margin: 7px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+    .close-button {
+      min-width: 36px;
+      height: 36px;
+      border: 0;
+      border-radius: 11px;
+      background: #edf4ef;
+      cursor: pointer;
+      font-size: 18px;
+    }
+    .modal-body { padding: 24px 25px 26px; }
+    .field { margin-bottom: 15px; }
+    .field label { display: block; margin-bottom: 7px; font-size: 12px; font-weight: 800; }
+    .field input {
+      width: 100%;
+      height: 46px;
+      padding: 0 13px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      color: var(--ink);
+      background: #fbfefc;
+    }
+    .auth-tabs { margin-bottom: 20px; padding: 4px; border-radius: 13px; display: grid; grid-template-columns: 1fr 1fr; background: #e8f1eb; }
+    .auth-tab { min-height: 38px; border: 0; border-radius: 10px; background: transparent; cursor: pointer; color: var(--muted); font-size: 12px; font-weight: 800; }
+    .auth-tab.active { color: var(--blue-dark); background: #fff; box-shadow: 0 4px 10px rgba(59,100,79,.08); }
+    .auth-hint {
+      margin-bottom: 18px;
+      padding: 14px;
+      border-radius: 14px;
+      color: #466b59;
+      background: var(--blue-soft);
+      font-size: 12px;
+      line-height: 1.65;
+    }
+    .auth-hint strong { display: block; margin-bottom: 3px; }
+    .auth-hint code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; }
+    .form-message { min-height: 18px; margin: -3px 0 10px; color: var(--danger); font-size: 11px; }
+
+    .choice-heading { margin: 0 0 9px; font-size: 13px; }
+    .choice-description { margin: 0 0 13px; color: var(--muted); font-size: 11px; }
+    .choice-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+    .choice {
+      min-height: 72px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      display: grid;
+      place-items: center;
+      gap: 5px;
+      background: #fff;
+      cursor: pointer;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .choice span { color: var(--muted); font-size: 10px; font-weight: 600; }
+    .choice.selected { color: var(--blue-dark); border-color: #91b9a3; background: var(--blue-soft); }
+    .per-subject-levels { margin: 22px 0; display: grid; gap: 11px; }
+    .subject-level-empty {
+      padding: 18px;
+      border-radius: 15px;
+      color: var(--muted);
+      background: #f3f8f4;
+      text-align: center;
+      font-size: 11px;
+    }
+    .subject-level-row {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 17px;
+      background: #fbfefc;
+    }
+    .subject-level-head { margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .subject-level-head strong { font-size: 13px; }
+    .subject-level-head span { color: var(--muted); font-size: 10px; }
+    .subject-level-buttons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .level-choice {
+      min-height: 55px;
+      padding: 9px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: #fff;
+      cursor: pointer;
+      text-align: center;
+    }
+    .level-choice strong { display: block; font-size: 12px; }
+    .level-choice span { display: block; margin-top: 4px; color: var(--muted); font-size: 9px; line-height: 1.35; }
+    .level-choice.selected { color: #4b705e; border-color: #93b69f; background: var(--teal-soft); }
+
+    .quiz-progress { margin-bottom: 20px; }
+    .quiz-progress-top { margin-bottom: 8px; display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; }
+    .quiz-progress .subject-track span { background: var(--teal); }
+    .question-kicker { color: var(--blue); font-size: 11px; font-weight: 900; }
+    .question-title { margin: 8px 0 18px; font-size: 19px; line-height: 1.5; letter-spacing: -.035em; }
+    .answers { display: grid; gap: 9px; }
+    .answer {
+      min-height: 50px;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      background: #fff;
+      cursor: pointer;
+      text-align: left;
+      font-size: 13px;
+    }
+    .answer-letter {
+      min-width: 28px;
+      height: 28px;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      color: var(--blue-dark);
+      background: var(--blue-soft);
+      font-size: 11px;
+      font-weight: 900;
+    }
+    .answer.selected { border-color: #91b9a3; background: #f2f8f4; }
+    .answer.correct { border-color: #a7b99b; background: var(--teal-soft); }
+    .answer.wrong { border-color: #f0a49e; background: var(--danger-soft); }
+    .explanation { margin-top: 13px; padding: 14px; border-radius: 14px; color: #527162; background: var(--sky-soft); font-size: 12px; line-height: 1.6; }
+    .quiz-footer { margin-top: 18px; display: flex; justify-content: flex-end; gap: 9px; }
+
+    .toast {
+      position: fixed;
+      z-index: 80;
+      right: 22px;
+      bottom: 22px;
+      max-width: min(360px, calc(100% - 44px));
+      padding: 14px 16px;
+      border-radius: 15px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #fff;
+      background: var(--navy);
+      box-shadow: 0 18px 45px rgba(47,86,72,.24);
+      font-size: 12px;
+      font-weight: 700;
+      transform: translateY(18px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s ease, transform .2s ease;
+    }
+    .toast.show { transform: none; opacity: 1; }
+    .toast-icon { color: var(--yellow); font-size: 16px; }
+
+    @media (max-width: 900px) {
+      .hero { grid-template-columns: 1fr; }
+      .main-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 680px) {
+      .topbar-inner, .dashboard { width: min(100% - 24px, 1180px); }
+      .topbar-inner { min-height: 64px; }
+      .top-actions .button.secondary { display: none; }
+      .hero { padding: 26px 21px; border-radius: 24px; }
+      .hero h1 { font-size: 31px; }
+      .content-card { padding: 19px; }
+      .metric-grid { grid-template-columns: 1fr; }
+      .metric-card { min-height: 118px; }
+      .timeline-item { grid-template-columns: 38px minmax(0, 1fr) auto; gap: 10px; padding: 12px; }
+      .timeline-order { width: 38px; height: 38px; }
+      .quiz-callout { align-items: flex-start; flex-direction: column; }
+      .choice-grid { grid-template-columns: 1fr; }
+      .subject-level-buttons { grid-template-columns: 1fr; }
+      .choice { min-height: 58px; }
+      .modal-backdrop { padding: 12px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#dashboard" aria-label="NeuroPlan 홈">
+        <span class="brand-mark" aria-hidden="true"><img src="assets/neuroplan-brain-icon.png" alt=""></span>
+        NeuroPlan
+      </a>
+      <div class="top-actions">
+        <button class="button secondary small" id="resetDemo" type="button">데모 초기화</button>
+        <button class="button primary small" id="signupButton" type="button">회원가입</button>
+        <button class="button ghost" id="loginButton" type="button">로그인</button>
+        <button class="button ghost small" id="logoutButton" type="button" hidden>로그아웃</button>
+        <div class="user-chip" id="userChip" hidden>
+          <span class="user-avatar" id="userInitial">김</span>
+          <span id="userName">김뉴로</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="dashboard" id="dashboard">
+    <section class="hero" aria-labelledby="heroTitle">
+      <div class="hero-copy">
+        <p class="eyebrow">AI Learning Companion</p>
+        <h1 id="heroTitle">오늘도 한 단계씩,<br>내 속도에 맞춰 배워요.</h1>
+        <p id="heroDescription">과목과 수준을 설정하면 오늘 집중할 학습 플랜을 만들고, 완료한 학습과 문제 결과를 대시보드에 바로 반영합니다.</p>
+        <div class="hero-actions">
+          <button class="button primary" id="mainAction" type="button">로그인하고 시작하기</button>
+          <button class="button secondary" id="profileAction" type="button">과목·수준 설정</button>
+        </div>
+      </div>
+      <div class="hero-plan">
+        <div class="hero-plan-top">
+          <strong>오늘의 학습 상태</strong>
+          <span class="status-pill" id="planStatus">설정 전</span>
+        </div>
+        <div class="plan-focus">
+          <small>오늘의 집중 과목</small>
+          <strong id="focusSubject">과목을 먼저 선택해 주세요</strong>
+        </div>
+        <div class="hero-progress-label">
+          <span>오늘의 진도</span>
+          <strong id="heroProgressText">0%</strong>
+        </div>
+        <div class="progress-track" role="progressbar" aria-label="오늘의 학습 진도" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="heroProgress">
+          <span id="heroProgressBar"></span>
+        </div>
+        <p class="hero-plan-note" id="planNote">로그인 후 학습 프로필을 설정하면 맞춤 플랜을 생성할 수 있어요.</p>
+      </div>
+    </section>
+
+    <section class="metric-grid" aria-label="학습 요약">
+      <article class="metric-card">
+        <div class="metric-top"><span class="metric-label">전체 진도율</span><span class="metric-icon">↗</span></div>
+        <div class="metric-value"><span id="overallProgress">0</span><small>%</small></div>
+        <div class="metric-caption" id="overallCaption">첫 학습을 시작하면 반영돼요.</div>
+      </article>
+      <article class="metric-card">
+        <div class="metric-top"><span class="metric-label">완료한 학습</span><span class="metric-icon">✓</span></div>
+        <div class="metric-value"><span id="completedCount">0</span><small>/ 3단계</small></div>
+        <div class="metric-caption">오늘 플랜 기준</div>
+      </article>
+      <article class="metric-card">
+        <div class="metric-top"><span class="metric-label">문제 정답률</span><span class="metric-icon">?</span></div>
+        <div class="metric-value"><span id="accuracyValue">-</span><small id="accuracyUnit"></small></div>
+        <div class="metric-caption" id="accuracyCaption">문제 풀이 후 계산돼요.</div>
+      </article>
+    </section>
+
+    <section class="main-grid">
+      <article class="content-card" aria-labelledby="todayPlanTitle">
+        <div class="card-head">
+          <div>
+            <h2 id="todayPlanTitle">오늘의 3단계 학습 플랜</h2>
+            <p id="planBasis">프로필을 설정하면 과목과 수준에 맞춰 생성합니다.</p>
+          </div>
+          <span class="today-tag">TODAY</span>
+        </div>
+
+        <div class="empty-state" id="planEmpty">
+          <div>
+            <div class="empty-icon" aria-hidden="true">✦</div>
+            <strong>아직 생성된 플랜이 없어요.</strong>
+            <span>과목과 수준을 설정하고 오늘의 플랜을 만들어 보세요.</span>
+          </div>
+        </div>
+
+        <div id="planContent" hidden>
+          <div class="timeline" id="timeline">
+            <div class="timeline-item" data-index="0">
+              <span class="timeline-order">01</span>
+              <div class="timeline-copy"><strong id="taskOneTitle">핵심 개념 익히기</strong><span id="taskOneContent">15분 · 개념 카드와 예제로 준비하기</span></div>
+              <button class="check-button" type="button" aria-label="1단계 완료">✓</button>
+            </div>
+            <div class="timeline-item" data-index="1">
+              <span class="timeline-order">02</span>
+              <div class="timeline-copy"><strong id="taskTwoTitle">실습 따라하기</strong><span id="taskTwoContent">20분 · 단계별 미니 실습 수행하기</span></div>
+              <button class="check-button" type="button" aria-label="2단계 완료">✓</button>
+            </div>
+            <div class="timeline-item" data-index="2">
+              <span class="timeline-order">03</span>
+              <div class="timeline-copy"><strong id="taskThreeTitle">핵심 내용 복습</strong><span id="taskThreeContent">10분 · 오늘 배운 내용 한 번 더 확인하기</span></div>
+              <button class="check-button" type="button" aria-label="3단계 완료">✓</button>
+            </div>
+          </div>
+          <div class="quiz-callout">
+            <div>
+              <strong>오늘의 확인 문제</strong>
+              <p id="quizGuide">3단계를 모두 완료하면 문제 풀이가 열립니다.</p>
+            </div>
+            <button class="button primary small" id="quizButton" type="button" disabled>문제 풀기</button>
+          </div>
+        </div>
+      </article>
+
+      <aside class="content-card" aria-labelledby="profileTitle">
+        <div class="card-head">
+          <div>
+            <h2 id="profileTitle">내 학습 프로필</h2>
+            <p>플랜 생성 기준을 확인할 수 있어요.</p>
+          </div>
+          <button class="button ghost small" id="editProfile" type="button">수정</button>
+        </div>
+        <div class="profile-summary">
+          <small>현재 설정 방식</small>
+          <strong id="profileLevel">미설정</strong>
+          <div class="subject-tags" id="subjectTags"><span class="subject-tag">과목을 선택해 주세요</span></div>
+        </div>
+        <div class="progress-list" id="subjectProgressList">
+          <div class="subject-progress">
+            <div class="subject-progress-top"><strong>학습 준비</strong><span id="setupProgressText">0%</span></div>
+            <div class="subject-track"><span id="setupProgressBar" style="width:0%"></span></div>
+          </div>
+        </div>
+        <button class="button primary block profile-plan-button" id="generatePlan" type="button" disabled>오늘의 플랜 생성하기</button>
+      </aside>
+    </section>
+  </main>
+
+  <div class="modal-backdrop" id="authModal" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+      <div class="modal-head">
+        <div><h2 id="authTitle">NeuroPlan 회원가입</h2><p id="authDescription">간단한 정보로 학습을 시작해 보세요.</p></div>
+        <button class="close-button" type="button" data-close="authModal" aria-label="닫기">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="auth-tabs" aria-label="인증 방식 선택">
+          <button class="auth-tab active" type="button" data-auth-mode="signup">회원가입</button>
+          <button class="auth-tab" type="button" data-auth-mode="login">로그인</button>
+        </div>
+        <div class="auth-hint" id="authHint" hidden>
+          <strong>데모 계정</strong>
+          이메일 <code>demo@nplan.local</code><br>
+          비밀번호 <code>NeuroPlan123!</code>
+        </div>
+        <form id="authForm" autocomplete="off" novalidate>
+          <div class="field" id="nameField">
+            <label for="authName">이름</label>
+            <input id="authName" name="nickname" type="text" autocomplete="off" maxlength="60" placeholder="김뉴로">
+          </div>
+          <div class="field">
+            <label for="authEmail">이메일</label>
+            <input id="authEmail" name="email" type="email" autocomplete="off" placeholder="demo@nplan.local">
+          </div>
+          <div class="field">
+            <label for="authPassword">비밀번호</label>
+            <input id="authPassword" name="password" type="password" autocomplete="new-password" minlength="8" maxlength="72" placeholder="8자 이상 입력">
+          </div>
+          <div class="form-message" id="authMessage" role="alert"></div>
+          <button class="button primary block" id="authSubmit" type="submit">로그인</button>
+        </form>
+      </div>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="profileModal" hidden>
+    <section class="modal large" role="dialog" aria-modal="true" aria-labelledby="profileModalTitle">
+      <div class="modal-head">
+        <div><h2 id="profileModalTitle">학습 프로필 설정</h2><p>관심 과목은 최대 3개까지 선택하고, 과목별 수준을 정할 수 있습니다.</p></div>
+        <button class="close-button" type="button" data-close="profileModal" aria-label="닫기">×</button>
+      </div>
+      <div class="modal-body">
+        <h3 class="choice-heading">학습 과목</h3>
+        <p class="choice-description">최소 1개, 최대 3개를 선택해 주세요.</p>
+        <div class="choice-grid" id="subjectChoices"><div class="subject-level-empty">과목 목록을 불러오는 중입니다.</div></div>
+
+        <div class="per-subject-levels" id="subjectLevelSettings">
+          <div class="subject-level-empty">과목을 선택하면 과목별 수준 설정이 나타납니다.</div>
+        </div>
+        <div class="form-message" id="profileMessage" role="alert"></div>
+        <button class="button primary block" id="saveProfile" type="button">설정 저장</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="quizModal" hidden>
+    <section class="modal large" role="dialog" aria-modal="true" aria-labelledby="quizTitle">
+      <div class="modal-head">
+        <div><h2 id="quizTitle">오늘의 확인 문제</h2><p id="quizSubjectText">학습한 핵심 내용을 확인합니다.</p></div>
+        <button class="close-button" type="button" data-close="quizModal" aria-label="닫기">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="quiz-progress">
+          <div class="quiz-progress-top"><span id="questionCounter">1 / 5</span><span>문제 진행률</span></div>
+          <div class="subject-track"><span id="quizProgressBar" style="width:20%"></span></div>
+        </div>
+        <div id="questionArea">
+          <span class="question-kicker" id="questionSubject">Kubernetes · 기본</span>
+          <h3 class="question-title" id="questionText"></h3>
+          <div class="answers" id="answerList"></div>
+          <div class="explanation" id="explanation" hidden></div>
+          <div class="quiz-footer"><button class="button primary" id="nextQuestion" type="button" disabled>정답 확인</button></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"><span class="toast-icon">●</span><span id="toastMessage"></span></div>
+
+  <script src="config.js"></script>
+  <script type="text/plain" id="legacy-mvp-app">
+    (() => {
+      const storageKey = "neuroplan-mvp-demo-v1";
+      const apiConfig = {
+        enabled: false,
+        baseUrl: "/api",
+        ...(window.NEUROPLAN_API || {})
+      };
+      const defaultState = {
+        authenticated: false,
+        userName: "",
+        subjects: [],
+        subjectLevels: {},
+        planGenerated: false,
+        tasks: [false, false, false],
+        quizFinished: false,
+        quizCorrect: 0
+      };
+      let state = loadState();
+      let authMode = "signup";
+      let draftSubjects = [];
+      let draftSubjectLevels = {};
+      let quizIndex = 0;
+      let quizScore = 0;
+      let chosenAnswer = null;
+      let answerChecked = false;
+      let toastTimer;
+
+      const questions = [
+        {
+          subject: "Kubernetes · 기본",
+          text: "Kubernetes에서 동일한 애플리케이션 Pod의 복제본 수를 유지하는 리소스는 무엇인가요?",
+          answers: ["Service", "ReplicaSet", "ConfigMap", "Namespace"],
+          correct: 1,
+          explanation: "ReplicaSet은 지정한 수의 Pod 복제본이 계속 실행되도록 유지합니다. 보통 Deployment가 ReplicaSet을 관리합니다."
+        },
+        {
+          subject: "Network · 기본",
+          text: "클러스터 내부에서 여러 Pod에 하나의 고정 접근 지점을 제공하는 것은 무엇인가요?",
+          answers: ["Service", "Secret", "CronJob", "PersistentVolume"],
+          correct: 0,
+          explanation: "Service는 변경될 수 있는 Pod 집합 앞에 안정적인 가상 IP와 DNS 이름을 제공합니다."
+        },
+        {
+          subject: "Linux · 기본",
+          text: "현재 시스템의 IP 주소를 간단한 형식으로 확인하는 명령은 무엇인가요?",
+          answers: ["df -h", "ip -br address", "free -m", "journalctl -f"],
+          correct: 1,
+          explanation: "ip -br address는 인터페이스 상태와 IP 주소를 간결한 표 형태로 보여 줍니다."
+        }
+      ];
+
+      const $ = (selector, root = document) => root.querySelector(selector);
+      const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+
+      function loadState() {
+        try {
+          const saved = JSON.parse(localStorage.getItem(storageKey) || "{}");
+          const migratedLevels = { ...(saved.subjectLevels || {}) };
+          if (saved.level && Array.isArray(saved.subjects)) {
+            saved.subjects.forEach(subject => {
+              if (!migratedLevels[subject]) migratedLevels[subject] = saved.level;
+            });
+          }
+          return { ...defaultState, ...saved, subjectLevels: migratedLevels };
+        } catch (_) {
+          return { ...defaultState };
+        }
+      }
+
+      function hasCompleteProfile(profile = state) {
+        return profile.subjects.length > 0 && profile.subjects.every(subject => Boolean(profile.subjectLevels[subject]));
+      }
+
+      function profileLabel(profile = state) {
+        return profile.subjects.map(subject => `${subject} · ${profile.subjectLevels[subject]}`).join(", ");
+      }
+
+      function renderSubjectLevelSettings() {
+        const container = $("#subjectLevelSettings");
+        if (!draftSubjects.length) {
+          container.innerHTML = '<div class="subject-level-empty">과목을 선택하면 과목별 수준 설정이 나타납니다.</div>';
+          return;
+        }
+        const descriptions = {
+          "초급": "개념부터",
+          "중급": "실습 중심",
+          "고급": "설계 중심"
+        };
+        container.innerHTML = draftSubjects.map(subject => `
+          <section class="subject-level-row" aria-label="${subject} 수준 설정">
+            <div class="subject-level-head">
+              <strong>${subject}</strong>
+              <span>${draftSubjectLevels[subject] ? `${draftSubjectLevels[subject]} 선택됨` : "수준을 선택해 주세요"}</span>
+            </div>
+            <div class="subject-level-buttons">
+              ${["초급", "중급", "고급"].map(level => `
+                <button class="level-choice${draftSubjectLevels[subject] === level ? " selected" : ""}" type="button" data-level-subject="${subject}" data-level="${level}">
+                  <strong>${level}</strong><span>${descriptions[level]}</span>
+                </button>`).join("")}
+            </div>
+          </section>`).join("");
+      }
+
+      function saveState() {
+        localStorage.setItem(storageKey, JSON.stringify(state));
+      }
+
+      function openModal(id) {
+        const modal = document.getElementById(id);
+        modal.hidden = false;
+        const firstInput = modal.querySelector("input, button");
+        if (firstInput) setTimeout(() => firstInput.focus(), 0);
+      }
+
+      function closeModal(id) {
+        document.getElementById(id).hidden = true;
+      }
+
+      function toast(message) {
+        clearTimeout(toastTimer);
+        $("#toastMessage").textContent = message;
+        $("#toast").classList.add("show");
+        toastTimer = setTimeout(() => $("#toast").classList.remove("show"), 2800);
+      }
+
+      async function apiRequest(path, options = {}, allowRefresh = true) {
+        const response = await fetch(`${apiConfig.baseUrl}${path}`, {
+          credentials: "include",
+          ...options,
+          headers: {
+            "Content-Type": "application/json",
+            ...(options.headers || {})
+          }
+        });
+        const contentType = response.headers.get("content-type") || "";
+        const payload = contentType.includes("application/json")
+          ? await response.json()
+          : { message: await response.text() };
+        const refreshExcluded = ["/auth/login", "/auth/signup", "/auth/refresh"].includes(path);
+        if (response.status === 401 && allowRefresh && !refreshExcluded) {
+          const refreshed = await fetch(`${apiConfig.baseUrl}/auth/refresh`, {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" }
+          });
+          if (refreshed.ok) return apiRequest(path, options, false);
+        }
+        if (!response.ok) {
+          const error = new Error(payload.message || `요청에 실패했습니다. (HTTP ${response.status})`);
+          error.status = response.status;
+          throw error;
+        }
+        return payload;
+      }
+
+      async function restoreSession() {
+        if (!apiConfig.enabled) return;
+        try {
+          const payload = await apiRequest("/auth/me");
+          state.authenticated = true;
+          state.userName = payload.user.nickname;
+        } catch (error) {
+          if (error.status !== 401) toast(`서버 연결 확인이 필요합니다: ${error.message}`);
+          state.authenticated = false;
+          state.userName = "";
+        }
+        saveState();
+        updateUI();
+      }
+
+      function currentStep() {
+        if (!state.authenticated) return 1;
+        if (!hasCompleteProfile()) return 2;
+        if (!state.planGenerated) return 3;
+        if (!state.tasks.every(Boolean)) return 4;
+        if (!state.quizFinished) return 5;
+        return 6;
+      }
+
+      function planProgress() {
+        return Math.round((state.tasks.filter(Boolean).length / 3) * 100);
+      }
+
+      function updateUI() {
+        const step = currentStep();
+        const completed = state.tasks.filter(Boolean).length;
+        const progress = planProgress();
+
+        $("#loginButton").hidden = state.authenticated;
+        $("#signupButton").hidden = state.authenticated;
+        $("#logoutButton").hidden = !state.authenticated;
+        $("#resetDemo").hidden = apiConfig.enabled;
+        $("#userChip").hidden = !state.authenticated;
+        if (state.authenticated) {
+          $("#userName").textContent = state.userName;
+          $("#userInitial").textContent = state.userName.slice(0, 1);
+        }
+
+        $$(".flow-step").forEach(el => {
+          const number = Number(el.dataset.step);
+          el.classList.toggle("done", number < step || (step === 6 && number === 6));
+          el.classList.toggle("active", number === step && !(step === 6 && state.quizFinished));
+          $(".flow-number", el).textContent = number < step || (step === 6 && state.quizFinished) ? "✓" : String(number);
+        });
+        $("#journeyStatus").textContent = step === 6 && state.quizFinished ? "모든 단계 완료" : `${step}단계 진행 중`;
+
+        $("#heroProgressText").textContent = `${progress}%`;
+        $("#heroProgressBar").style.width = `${progress}%`;
+        $("#heroProgress").setAttribute("aria-valuenow", String(progress));
+        $("#completedCount").textContent = String(completed);
+        $("#overallProgress").textContent = state.quizFinished ? "100" : String(progress);
+        $("#overallCaption").textContent = state.quizFinished ? "오늘 학습이 대시보드에 반영됐어요." : completed ? "오늘 플랜을 진행하고 있어요." : "첫 학습을 시작하면 반영돼요.";
+
+        if (state.quizFinished) {
+          const accuracy = Math.round((state.quizCorrect / questions.length) * 100);
+          $("#accuracyValue").textContent = String(accuracy);
+          $("#accuracyUnit").textContent = "%";
+          $("#accuracyCaption").textContent = `${questions.length}문제 중 ${state.quizCorrect}문제 정답`;
+        } else {
+          $("#accuracyValue").textContent = "-";
+          $("#accuracyUnit").textContent = "";
+          $("#accuracyCaption").textContent = "문제 풀이 후 계산돼요.";
+        }
+
+        const hasProfile = hasCompleteProfile();
+        $("#profileLevel").textContent = hasProfile ? "과목별 맞춤 수준" : "미설정";
+        $("#subjectTags").innerHTML = hasProfile
+          ? state.subjects.map(subject => `<span class="subject-tag">${subject} · ${state.subjectLevels[subject]}</span>`).join("")
+          : '<span class="subject-tag">과목을 선택해 주세요</span>';
+        $("#setupProgressText").textContent = hasProfile ? "100%" : state.authenticated ? "50%" : "0%";
+        $("#setupProgressBar").style.width = hasProfile ? "100%" : state.authenticated ? "50%" : "0%";
+        $("#generatePlan").disabled = !hasProfile;
+        $("#generatePlan").textContent = state.planGenerated ? "플랜 다시 생성하기" : "오늘의 플랜 생성하기";
+
+        $("#planEmpty").hidden = state.planGenerated;
+        $("#planContent").hidden = !state.planGenerated;
+        if (state.planGenerated) {
+          const focus = state.subjects[0] || "Kubernetes";
+          const focusLevel = state.subjectLevels[focus] || "초급";
+          $("#focusSubject").textContent = `${focus} · ${focusLevel}`;
+          $("#taskOneTitle").textContent = `${focus} 핵심 개념 익히기`;
+          $("#taskTwoTitle").textContent = `${focus} 미니 실습 따라하기`;
+          $("#taskThreeTitle").textContent = `${focus} 핵심 내용 복습`;
+          $("#planBasis").textContent = `${profileLabel()} 설정 기준`;
+          $("#planStatus").textContent = state.quizFinished ? "학습 완료" : completed ? "학습 중" : "플랜 준비됨";
+          $("#planNote").textContent = state.quizFinished
+            ? "오늘의 학습 결과가 대시보드에 반영되었습니다."
+            : completed === 3
+              ? "학습을 모두 마쳤어요. 확인 문제에 도전해 보세요."
+              : `3단계 중 ${completed}단계를 완료했습니다.`;
+        } else {
+          const focus = state.subjects[0];
+          $("#focusSubject").textContent = hasProfile ? `${focus} · ${state.subjectLevels[focus]}` : "과목을 먼저 선택해 주세요";
+          $("#planStatus").textContent = hasProfile ? "생성 대기" : "설정 전";
+          $("#planNote").textContent = hasProfile ? "오늘의 플랜 생성 버튼을 눌러 학습을 시작하세요." : "회원가입 후 학습 프로필을 설정하면 맞춤 플랜을 생성할 수 있어요.";
+        }
+
+        $$(".timeline-item").forEach((item, index) => {
+          const done = Boolean(state.tasks[index]);
+          item.classList.toggle("completed", done);
+          const button = $(".check-button", item);
+          button.setAttribute("aria-pressed", String(done));
+          button.setAttribute("aria-label", `${index + 1}단계 ${done ? "완료 취소" : "완료"}`);
+        });
+        const tasksDone = state.tasks.every(Boolean);
+        $("#quizButton").disabled = !tasksDone;
+        $("#quizGuide").textContent = state.quizFinished ? "풀이 결과가 대시보드에 반영되었습니다." : tasksDone ? "준비가 끝났어요. 3문제를 풀어 보세요." : "3단계를 모두 완료하면 문제 풀이가 열립니다.";
+
+        if (!state.authenticated) {
+          $("#mainAction").textContent = "회원가입하고 시작하기";
+        } else if (!hasProfile) {
+          $("#mainAction").textContent = "과목·수준 설정하기";
+        } else if (!state.planGenerated) {
+          $("#mainAction").textContent = "오늘의 플랜 생성하기";
+        } else if (!tasksDone) {
+          $("#mainAction").textContent = "오늘 학습 이어하기";
+        } else if (!state.quizFinished) {
+          $("#mainAction").textContent = "확인 문제 풀기";
+        } else {
+          $("#mainAction").textContent = "오늘 학습 완료";
+        }
+      }
+
+      function openProfile() {
+        if (!state.authenticated) {
+          setAuthMode("signup");
+          openModal("authModal");
+          toast("먼저 회원가입 또는 로그인이 필요해요.");
+          return;
+        }
+        draftSubjects = [...state.subjects];
+        draftSubjectLevels = { ...state.subjectLevels };
+        $$("[data-subject]").forEach(button => button.classList.toggle("selected", draftSubjects.includes(button.dataset.subject)));
+        renderSubjectLevelSettings();
+        $("#profileMessage").textContent = "";
+        openModal("profileModal");
+      }
+
+      function setAuthMode(mode) {
+        authMode = mode;
+        $$("[data-auth-mode]").forEach(button => button.classList.toggle("active", button.dataset.authMode === mode));
+        $("#nameField").hidden = mode === "login";
+        $("#authTitle").textContent = mode === "signup" ? "NeuroPlan 회원가입" : "NeuroPlan 로그인";
+        $("#authDescription").textContent = mode === "signup"
+          ? "간단한 정보로 학습을 시작해 보세요."
+          : "가입한 이메일과 비밀번호를 입력해 주세요.";
+        $("#authHint").hidden = apiConfig.enabled || mode !== "login";
+        $("#authPassword").autocomplete = mode === "signup" ? "new-password" : "current-password";
+        $("#authSubmit").textContent = mode === "signup" ? "회원가입 완료" : "로그인";
+        $("#authMessage").textContent = "";
+      }
+
+      function generatePlan() {
+        if (!hasCompleteProfile()) return;
+        state.planGenerated = true;
+        state.tasks = [false, false, false];
+        state.quizFinished = false;
+        state.quizCorrect = 0;
+        saveState();
+        updateUI();
+        toast(`${state.subjects[0]} 중심의 오늘 학습 플랜을 만들었어요.`);
+        $("#todayPlanTitle").scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+
+      function startQuiz() {
+        quizIndex = 0;
+        quizScore = 0;
+        chosenAnswer = null;
+        answerChecked = false;
+        renderQuestion();
+        openModal("quizModal");
+      }
+
+      function renderQuestion() {
+        const question = questions[quizIndex];
+        $("#questionCounter").textContent = `${quizIndex + 1} / ${questions.length}`;
+        $("#quizProgressBar").style.width = `${((quizIndex + 1) / questions.length) * 100}%`;
+        $("#questionSubject").textContent = question.subject;
+        $("#questionText").textContent = question.text;
+        $("#quizSubjectText").textContent = `${state.subjects[0] || "오늘의 학습"} 핵심 내용을 확인합니다.`;
+        $("#answerList").innerHTML = question.answers.map((answer, index) => `
+          <button class="answer" type="button" data-answer="${index}">
+            <span class="answer-letter">${String.fromCharCode(65 + index)}</span>
+            <span>${answer}</span>
+          </button>`).join("");
+        $("#explanation").hidden = true;
+        $("#explanation").textContent = "";
+        $("#nextQuestion").disabled = true;
+        $("#nextQuestion").textContent = "정답 확인";
+        chosenAnswer = null;
+        answerChecked = false;
+      }
+
+      document.addEventListener("click", event => {
+        const close = event.target.closest("[data-close]");
+        if (close) closeModal(close.dataset.close);
+
+        const authTab = event.target.closest("[data-auth-mode]");
+        if (authTab) setAuthMode(authTab.dataset.authMode);
+
+        const subject = event.target.closest("[data-subject]");
+        if (subject) {
+          const value = subject.dataset.subject;
+          if (draftSubjects.includes(value)) {
+            draftSubjects = draftSubjects.filter(item => item !== value);
+            delete draftSubjectLevels[value];
+          } else {
+            draftSubjects = [...draftSubjects, value];
+          }
+          subject.classList.toggle("selected", draftSubjects.includes(value));
+          renderSubjectLevelSettings();
+        }
+
+        const level = event.target.closest("[data-level-subject]");
+        if (level) {
+          draftSubjectLevels[level.dataset.levelSubject] = level.dataset.level;
+          renderSubjectLevelSettings();
+        }
+
+        const answer = event.target.closest("[data-answer]");
+        if (answer && !answerChecked) {
+          chosenAnswer = Number(answer.dataset.answer);
+          $$("[data-answer]").forEach(button => button.classList.toggle("selected", Number(button.dataset.answer) === chosenAnswer));
+          $("#nextQuestion").disabled = false;
+        }
+      });
+
+      $("#authForm").addEventListener("submit", async event => {
+        event.preventDefault();
+        const name = $("#authName").value.trim();
+        const email = $("#authEmail").value.trim();
+        const password = $("#authPassword").value;
+        if ((authMode === "signup" && !name) || !email.includes("@") || password.length < 8) {
+          $("#authMessage").textContent = "이름, 올바른 이메일, 8자 이상의 비밀번호를 확인해 주세요.";
+          return;
+        }
+        $("#authSubmit").disabled = true;
+        $("#authMessage").textContent = apiConfig.enabled ? "서버에서 확인하고 있어요..." : "";
+        try {
+          if (apiConfig.enabled) {
+            const payload = await apiRequest(authMode === "signup" ? "/auth/signup" : "/auth/login", {
+              method: "POST",
+              body: JSON.stringify(authMode === "signup"
+                ? { nickname: name, email, password }
+                : { email, password })
+            });
+            state.userName = payload.user.nickname;
+          } else {
+            state.userName = authMode === "signup" ? name : (state.userName || email.split("@")[0]);
+          }
+          state.authenticated = true;
+          saveState();
+          closeModal("authModal");
+          updateUI();
+          toast(authMode === "signup" ? `${state.userName}님, 가입을 환영합니다!` : `${state.userName}님, 다시 만나 반가워요.`);
+          setTimeout(openProfile, 260);
+        } catch (error) {
+          $("#authMessage").textContent = error.message;
+        } finally {
+          $("#authSubmit").disabled = false;
+        }
+      });
+
+      $("#saveProfile").addEventListener("click", () => {
+        const missingLevels = draftSubjects.filter(subject => !draftSubjectLevels[subject]);
+        if (!draftSubjects.length || missingLevels.length) {
+          $("#profileMessage").textContent = !draftSubjects.length
+            ? "학습 과목을 최소 한 개 선택해 주세요."
+            : `${missingLevels.join(", ")} 과목의 수준을 선택해 주세요.`;
+          return;
+        }
+        state.subjects = [...draftSubjects];
+        state.subjectLevels = Object.fromEntries(state.subjects.map(subject => [subject, draftSubjectLevels[subject]]));
+        state.planGenerated = false;
+        state.tasks = [false, false, false];
+        state.quizFinished = false;
+        state.quizCorrect = 0;
+        saveState();
+        closeModal("profileModal");
+        updateUI();
+        toast(`${profileLabel()} 프로필을 저장했어요.`);
+      });
+
+      $("#generatePlan").addEventListener("click", generatePlan);
+      $("#quizButton").addEventListener("click", startQuiz);
+      $("#editProfile").addEventListener("click", openProfile);
+      $("#profileAction").addEventListener("click", openProfile);
+      $("#loginButton").addEventListener("click", () => { setAuthMode("login"); openModal("authModal"); });
+      $("#signupButton").addEventListener("click", () => { setAuthMode("signup"); openModal("authModal"); });
+      $("#logoutButton").addEventListener("click", async () => {
+        try {
+          if (apiConfig.enabled) await apiRequest("/auth/logout", { method: "POST" });
+        } catch (error) {
+          toast(`로그아웃 요청 확인이 필요합니다: ${error.message}`);
+        } finally {
+          state = { ...defaultState, tasks: [false, false, false] };
+          localStorage.removeItem(storageKey);
+          updateUI();
+          toast("로그아웃했습니다.");
+        }
+      });
+
+      $("#mainAction").addEventListener("click", () => {
+        const step = currentStep();
+        if (step === 1) { setAuthMode("signup"); openModal("authModal"); }
+        else if (step === 2) openProfile();
+        else if (step === 3) generatePlan();
+        else if (step === 4) $("#todayPlanTitle").scrollIntoView({ behavior: "smooth", block: "center" });
+        else if (step === 5) startQuiz();
+        else toast("오늘 학습을 모두 완료했어요. 수고하셨습니다!");
+      });
+
+      $$(".timeline-item").forEach((item, index) => {
+        $(".check-button", item).addEventListener("click", () => {
+          state.tasks[index] = !state.tasks[index];
+          saveState();
+          updateUI();
+          toast(state.tasks[index] ? `${index + 1}단계 학습을 완료했어요.` : `${index + 1}단계 완료를 취소했어요.`);
+        });
+      });
+
+      $("#nextQuestion").addEventListener("click", () => {
+        const question = questions[quizIndex];
+        if (!answerChecked) {
+          answerChecked = true;
+          if (chosenAnswer === question.correct) quizScore += 1;
+          $$("[data-answer]").forEach(button => {
+            const index = Number(button.dataset.answer);
+            button.classList.remove("selected");
+            if (index === question.correct) button.classList.add("correct");
+            else if (index === chosenAnswer) button.classList.add("wrong");
+          });
+          $("#explanation").textContent = `${chosenAnswer === question.correct ? "정답입니다. " : "아쉽지만 오답입니다. "}${question.explanation}`;
+          $("#explanation").hidden = false;
+          $("#nextQuestion").textContent = quizIndex === questions.length - 1 ? "결과 확인" : "다음 문제";
+          return;
+        }
+
+        if (quizIndex < questions.length - 1) {
+          quizIndex += 1;
+          renderQuestion();
+        } else {
+          state.quizFinished = true;
+          state.quizCorrect = quizScore;
+          saveState();
+          closeModal("quizModal");
+          updateUI();
+          toast(`정답률 ${Math.round((quizScore / questions.length) * 100)}%가 대시보드에 반영됐어요.`);
+          $("#dashboard").scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      });
+
+      $("#resetDemo").addEventListener("click", () => {
+        if (!confirm("회원가입부터 다시 테스트할 수 있도록 데모 데이터를 초기화할까요?")) return;
+        state = { ...defaultState, tasks: [false, false, false] };
+        localStorage.removeItem(storageKey);
+        updateUI();
+        toast("데모 데이터를 초기화했습니다.");
+      });
+
+      $$(".modal-backdrop").forEach(backdrop => {
+        backdrop.addEventListener("click", event => {
+          if (event.target === backdrop) closeModal(backdrop.id);
+        });
+      });
+
+      document.addEventListener("keydown", event => {
+        if (event.key !== "Escape") return;
+        const openBackdrop = $$(".modal-backdrop").find(backdrop => !backdrop.hidden);
+        if (openBackdrop) closeModal(openBackdrop.id);
+      });
+
+      updateUI();
+      restoreSession();
+    })();
+  </script>
+  <script src="mvp-app.js"></script>
+</body>
+</html>
