@@ -37,7 +37,9 @@ kubectl -n "$NAMESPACE" get pods \
 for app in neuroplan-frontend neuroplan-backend; do
   pod="$(kubectl -n "$NAMESPACE" get pod \
     -l "app.kubernetes.io/name=$app" \
-    -o jsonpath='{.items[0].metadata.name}')"
+    --field-selector=status.phase=Running \
+    -o name | head -n1)"
+  [[ -n "$pod" ]] || { echo "[FAIL] no running pod found for $app" >&2; exit 2; }
   uid="$(kubectl -n "$NAMESPACE" exec "$pod" -- id -u)"
   [[ "$uid" != "0" ]] || { echo "[FAIL] $app is running as root" >&2; exit 2; }
   echo "[PASS] $app rootless uid=$uid"

@@ -45,6 +45,11 @@ kubectl -n "$NAMESPACE" get gateway neuroplan-gateway >/dev/null
 
 kubectl apply --dry-run=server -k "$KUSTOMIZE_DIR"
 kubectl apply -k "$KUSTOMIZE_DIR"
+# Release images may be republished with the same version tag while validating a
+# release candidate. Restart the pods so every deployment resolves the current
+# registry manifest instead of continuing to run the previous image digest.
+kubectl -n "$NAMESPACE" rollout restart deployment/neuroplan-backend
+kubectl -n "$NAMESPACE" rollout restart deployment/neuroplan-frontend
 kubectl -n "$NAMESPACE" rollout status deployment/neuroplan-backend --timeout=5m
 kubectl -n "$NAMESPACE" rollout status deployment/neuroplan-frontend --timeout=5m
 wait_for_route_condition Accepted 120

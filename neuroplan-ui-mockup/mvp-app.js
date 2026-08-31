@@ -269,12 +269,16 @@
   }
 
   function showLearningPage() {
-    $("#adminPage").hidden = true;
-    $("#dashboard").hidden = false;
-    $("#categoryNav").hidden = false;
+    showLearningShell();
     activePage = "dashboard";
     showPage("dashboard");
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function showLearningShell() {
+    $("#adminPage").hidden = true;
+    $("#dashboard").hidden = false;
+    $("#categoryNav").hidden = false;
   }
 
   async function showPage(page) {
@@ -288,6 +292,9 @@
       if (!confirm("저장하지 않은 계정 설정 변경사항이 있습니다. 이동할까요?")) return;
       accountDirty = false;
     }
+    // The admin view uses a separate page container. Restore the regular
+    // learning shell before activating account or category content.
+    showLearningShell();
     activePage = page;
     $$('[data-page-section]').forEach(section => { section.hidden = section.dataset.pageSection !== page; });
     $$('[data-page]').forEach(button => button.classList.toggle("active", button.dataset.page === page));
@@ -1172,15 +1179,17 @@
       const expiresAt = Date.parse(response.expiresAt);
       reauthExpiresAt = Number.isNaN(expiresAt) ? Date.now() + 5 * 60 * 1000 : expiresAt;
       const action = pendingSecureAction;
-      closeModal("reauthModal");
+      pendingSecureAction = null;
       updateReauthStatus();
       if (action) {
+        $("#reauthMessage").textContent = "계정 정보를 불러오고 있어요...";
         try {
           await action();
         } catch (actionError) {
           toast(actionError.message);
         }
       }
+      closeModal("reauthModal");
     } catch (error) {
       $("#reauthMessage").textContent = error.message;
     } finally {

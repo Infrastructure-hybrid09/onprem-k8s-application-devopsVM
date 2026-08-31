@@ -55,7 +55,8 @@
     .topbar {
       position: sticky;
       top: 0;
-      z-index: 20;
+      /* Keep the user menu above its full-screen click-away scrim (z-index: 39). */
+      z-index: 40;
       border-bottom: 1px solid rgba(213,228,218,.94);
       background: rgba(255,254,250,.92);
       backdrop-filter: blur(14px);
