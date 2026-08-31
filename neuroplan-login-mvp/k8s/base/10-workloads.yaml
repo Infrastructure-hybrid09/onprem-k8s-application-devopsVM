@@ -10,6 +10,7 @@ data:
   JWT_ISSUER: neuroplan-auth
   JWT_ACCESS_TTL: 15m
   JWT_REFRESH_TTL: 7d
+  JWT_REAUTH_TTL: 5m
   AUTH_COOKIE_SECURE: "true"
   # MVP 관리자 계정. 운영 전 팀 승인 이메일로 교체합니다(여러 개는 쉼표로 구분).
   ADMIN_EMAILS: admin@nplan.local
@@ -39,7 +40,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: frontend
-          image: 192.168.34.21:5000/neuroplan/frontend:0.6.0
+          image: 192.168.34.21:5000/neuroplan/frontend:0.7.0
           imagePullPolicy: Always
           ports:
             - name: http
@@ -116,7 +117,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: backend
-          image: 192.168.34.21:5000/neuroplan/backend:0.6.0
+          image: 192.168.34.21:5000/neuroplan/backend:0.7.0
           imagePullPolicy: Always
           envFrom:
             - configMapRef:

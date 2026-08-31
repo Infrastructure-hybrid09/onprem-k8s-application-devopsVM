@@ -1,6 +1,6 @@
-# NeuroPlan 학습 MVP 0.6.0
+# NeuroPlan 학습 MVP 0.7.0
 
-> 릴리스 상태: 사설 Registry 등록, On-Prem Kubernetes 배포 및 전체 Smoke Test 완료 (2026-08-27)
+> 릴리스 상태: 0.7.0 테스트 후보 — 로컬 정적 검증 완료, DevOps VM 통합 테스트 필요 (2026-08-31)
 
 회원가입부터 과목·수준 설정, 오늘 플랜, 3단계 완료, 5문제 진단, 오답·일별 통계까지 MariaDB에 저장하는 최소 학습 서비스입니다. On-Prem Kubernetes에서 먼저 실행한 뒤 ROSA/OpenShift로 옮길 수 있도록 Workload와 진입 리소스를 분리했습니다.
 
@@ -18,7 +18,7 @@ Client
 
 - Frontend: 정적 HTML/JavaScript, API와 동일 Origin
 - Backend: Java 21, Spring Boot 3.5.16, MariaDB Connector/J 3.5.7
-- 인증: HS256 Access JWT 15분 + 무작위 Refresh Token 7일
+- 인증: HS256 Access JWT 15분 + 무작위 Refresh Token 7일 + 재인증 JWT 5분
 - 쿠키: Secure, HttpOnly, SameSite=Lax
 - 비밀번호: BCrypt strength 12 해시
 - Refresh Token: SHA-256 해시만 `jwt_sessions`에 저장
@@ -29,12 +29,12 @@ Client
 
 | 화면/기능 | 실제 사용 테이블 |
 |---|---|
-| 회원가입·로그인·로그아웃·회원 탈퇴 | `users`, `jwt_sessions` |
+| 회원가입·로그인·닉네임·로그아웃·회원 탈퇴 | `users`, `jwt_sessions` |
 | 과목 목록·과목별 수준(최대 3개) | `subjects`, `user_subjects` |
 | 오늘의 플랜·3단계 완료 | `daily_plans`, `plan_steps` |
 | 5문제 진단·제출 답안 | `diagnosis_questions`, `question_options`, `diagnosis_attempts`, `diagnosis_answers` |
 | 오답 누적·재학습 완료·상세 대시보드 | `wrong_notes`, `study_daily_stats`, `diagnosis_attempts` 집계 |
-| 관리자 요약·회원 상태 관리 | 위 테이블의 집계 조회, `users`, `jwt_sessions` |
+| 관리자 요약·회원 상태·영구 삭제 | 사용자와 연결된 위 12개 테이블 전체 |
 
 ### 인증 저장 원칙
 
@@ -46,12 +46,13 @@ Client
 
 `LOCKED` 또는 `WITHDRAWN` 계정은 로그인과 기존 세션 사용이 모두 거부됩니다. 로그아웃 또는 Refresh Token 회전 시 기존 세션의 `revoked_at`이 기록됩니다.
 
-## 0.6.0 변경 사항
+## 0.7.0 변경 사항
 
-- **카테고리 화면:** 대시보드, 학습 플랜, 문제 풀이, 오답 노트, 학습 기록, 계정 설정을 분리합니다.
-- **과목별 학습:** 선택 과목마다 플랜을 생성·전환하고, 주간 진행률과 정답률을 모두 표시합니다.
-- **독립 문제 풀이:** 플랜 체크 여부와 관계없이 과목을 골라 진단 문제를 풀 수 있습니다.
-- **계정·관리:** 비밀번호 변경, 전체 세션 종료, 회원 검색, 학습 현황, 과목·문제 등록·수정·활성화 관리 기능을 제공합니다.
+- **사용자 메뉴:** 오른쪽 위 닉네임에서 계정 설정, 전체 세션 로그아웃, 관리자 페이지, 로그아웃을 실행합니다. 모바일에서는 하단 시트로 표시합니다.
+- **5분 재인증:** 현재 비밀번호 확인 후 Access Token 세션에 묶인 짧은 수명의 HttpOnly 재인증 쿠키를 발급하고 민감 API에서 다시 검증합니다.
+- **계정 설정:** 이메일·상태·가입일·활성 세션을 확인하고 닉네임, 비밀번호, 전체 세션과 회원 탈퇴를 한 화면에서 관리합니다.
+- **관리자 영구 삭제:** WITHDRAWN 사용자만 이메일 재확인과 관리자 재인증 후 관련 학습 데이터를 트랜잭션으로 영구 삭제합니다.
+- **관리 편의:** 회원 검색 페이지네이션, 작업 후 자동 목록 갱신, 변경사항 이탈 경고와 성공·실패 Toast를 제공합니다.
 - 모든 기능은 기존 테이블의 데이터를 조회·갱신하며, 애플리케이션이 DB DDL을 실행하지 않는 원칙은 그대로 유지합니다.
 
 이미 제출 답안이 연결된 문제는 답안 이력을 보존하기 위해 과목과 보기를 직접 변경할 수 없습니다.
@@ -60,7 +61,7 @@ Client
 ### 별도 인프라·DB 확장이 필요한 기능
 
 다음 기능은 현재 12개 테이블만으로는 여러 Backend replica에서 안전하게 구현할 수 없어
-0.6.0 자동 배포 대상에서 제외합니다.
+0.7.0 자동 배포 대상에서 제외합니다.
 
 - 이메일 기반 비밀번호 분실 재설정 및 이메일 인증: SMTP와 만료 토큰 저장소 필요
 - 로그인 실패 횟수 제한: 공유 rate-limit 저장소 또는 로그인 시도 테이블 필요
@@ -116,7 +117,7 @@ mariadb --no-defaults --disable-ssl \
 
 스키마 점검이 모두 `PASS`이면 과목과 과목별 최소 5문제를 반복 실행 가능한 DML로 준비합니다. 기존 팀 데이터는 덮어쓰지 않습니다.
 
-0.6.0의 과목별 당일 플랜을 사용하려면 `daily_plans`의 UNIQUE 기준이
+0.7.0의 과목별 당일 플랜을 사용하려면 `daily_plans`의 UNIQUE 기준이
 `(user_id, subject_id, plan_date)`여야 합니다. `02-verify-learning-schema.sql`의
 인덱스 출력에서 기존 UNIQUE 키가 `(user_id, plan_date)`로만 되어 있다면 DB 담당자가
 제약 조건을 변경한 뒤 배포해야 합니다. 애플리케이션은 해당 DDL을 자동 실행하지 않습니다.
@@ -157,8 +158,8 @@ cd ~/onprem-k8s
 이미지:
 
 ```text
-192.168.34.21:5000/neuroplan/frontend:0.6.0
-192.168.34.21:5000/neuroplan/backend:0.6.0
+192.168.34.21:5000/neuroplan/frontend:0.7.0
+192.168.34.21:5000/neuroplan/backend:0.7.0
 ```
 
 이미지는 기본 UID 1001을 선언하지만 Pod YAML에는 UID/GID를 고정하지 않습니다. Kubernetes에서는 비-root로 실행되고 ROSA에서는 SCC가 할당한 임의 UID로 실행됩니다.
@@ -183,7 +184,7 @@ application/neuroplan-auth-secrets
 
 재실행하면 JWT 키도 바뀌어 기존 로그인이 모두 무효화됩니다. 일반 배포 때는 재실행하지 않고 키 교체 작업으로만 사용합니다.
 
-관리자 페이지는 `k8s/base/10-workloads.yaml`의 `ADMIN_EMAILS` 허용 목록으로 제한합니다. 기본 테스트 값은 `admin@nplan.local`이며, 해당 이메일로 회원가입/로그인하면 상단에 **관리자** 버튼이 표시됩니다. 팀 승인 이메일이 다르면 배포 전에 쉼표 구분 목록으로 교체합니다.
+관리자 페이지는 `k8s/base/10-workloads.yaml`의 `ADMIN_EMAILS` 허용 목록으로 제한합니다. 기본 테스트 값은 `admin@nplan.local`이며, 해당 이메일로 회원가입/로그인하면 오른쪽 위 사용자 메뉴에 **관리자 페이지**가 표시됩니다. 팀 승인 이메일이 다르면 배포 전에 쉼표 구분 목록으로 교체합니다.
 
 ## 5. On-Prem 배포
 
@@ -223,12 +224,14 @@ DevOps VM에서는 DMZ Service VIP로 직접 라우팅되지 않으므로 스크
 - API와 DB health
 - 회원가입 후 users 저장
 - Access JWT로 `/auth/me` 호출
+- 현재 비밀번호 재인증, 계정 정보·활성 세션 조회와 닉네임 변경
 - 2개 과목·수준 저장과 과목별 같은 일자 플랜 생성·재생성
 - 3단계 완료 및 5문제 진단 저장
 - 플랜 완료와 무관한 다른 과목 문제 풀이, 오답과 과목별 주간 통계 반영
 - Refresh Token 회전 후 새 세션 사용
 - 비밀번호 변경 후 전 세션 폐기, 재로그인, 전체 세션 종료
 - 비밀번호 확인 회원 탈퇴와 탈퇴 계정 로그인 차단
+- `ADMIN_TEST_EMAIL`, `ADMIN_TEST_PASSWORD`를 지정하면 WITHDRAWN 테스트 회원 영구 삭제
 
 브라우저에서는 `https://app.nplan.local`에 접속해 회원가입 → 로그아웃 → 재로그인을 확인합니다.
 
@@ -283,7 +286,13 @@ LIMIT 10;
 | GET | `/api/auth/me` | Access JWT와 DB 세션 검증 |
 | POST | `/api/auth/refresh` | Refresh Token 회전 |
 | POST | `/api/auth/logout` | DB 세션 폐기와 쿠키 제거 |
-| POST | `/api/auth/withdraw` | 비밀번호 확인 후 `WITHDRAWN` 처리와 전체 세션 폐기 |
+| POST | `/api/auth/reauth` | 현재 비밀번호 확인 후 5분 재인증 쿠키 발급 |
+| DELETE | `/api/auth/reauth` | 재인증 쿠키 제거 |
+| GET | `/api/auth/account` | 계정 정보와 활성 세션 수 조회 |
+| PATCH | `/api/auth/profile` | 재인증 후 닉네임 변경 |
+| PUT | `/api/auth/password` | 재인증 후 비밀번호 변경과 전체 세션 폐기 |
+| DELETE | `/api/auth/sessions` | 재인증 후 전체 로그인 세션 폐기 |
+| POST | `/api/auth/withdraw` | 재인증·비밀번호 확인 후 `WITHDRAWN` 처리 |
 | GET | `/api/learning/subjects` | 활성 과목 목록 |
 | GET | `/api/learning/state` | 프로필·오늘 플랜·통계·최근 진단 |
 | PUT | `/api/learning/profile` | 과목별 수준 최대 3개 저장 |
@@ -294,6 +303,7 @@ LIMIT 10;
 | POST | `/api/learning/diagnosis/attempts` | 풀이·오답·일별 통계 저장 |
 | GET | `/api/admin/overview` | 관리자용 회원·과목·오늘 플랜·진단 요약 |
 | PATCH | `/api/admin/users/{id}/status` | 관리자용 ACTIVE/LOCKED/WITHDRAWN 상태 변경 |
+| DELETE | `/api/admin/users/{id}` | 재인증한 관리자의 WITHDRAWN 사용자 영구 삭제 |
 | GET | `/api/health` | API 상태 |
 | GET | `/api/db-health` | MaxScale/MariaDB 상태 |
 
@@ -325,8 +335,8 @@ NAMESPACE=neuroplan KUBE_CLI=oc ./scripts/00-create-db-secret.sh
 
 cd k8s/rosa
 kustomize edit set image \
-  192.168.34.21:5000/neuroplan/frontend:0.6.0=quay.io/ORG/neuroplan-frontend:0.6.0 \
-  192.168.34.21:5000/neuroplan/backend:0.6.0=quay.io/ORG/neuroplan-backend:0.6.0
+  192.168.34.21:5000/neuroplan/frontend:0.7.0=quay.io/ORG/neuroplan-frontend:0.7.0 \
+  192.168.34.21:5000/neuroplan/backend:0.7.0=quay.io/ORG/neuroplan-backend:0.7.0
 oc apply -k .
 ```
 

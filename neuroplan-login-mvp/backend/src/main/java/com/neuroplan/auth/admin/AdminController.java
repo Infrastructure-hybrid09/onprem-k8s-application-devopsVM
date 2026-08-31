@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
+import com.neuroplan.auth.auth.ReauthService;
 import com.neuroplan.auth.error.ApiException;
 import com.neuroplan.auth.session.JwtSessionRepository;
 import com.neuroplan.auth.user.UserRecord;
@@ -14,6 +15,7 @@ import com.neuroplan.auth.user.UserRepository;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
@@ -23,6 +25,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -41,17 +44,20 @@ public class AdminController {
     private final AdminAccessService adminAccessService;
     private final UserRepository userRepository;
     private final JwtSessionRepository sessionRepository;
+    private final ReauthService reauthService;
 
     public AdminController(
             JdbcTemplate jdbcTemplate,
             AdminAccessService adminAccessService,
             UserRepository userRepository,
-            JwtSessionRepository sessionRepository
+            JwtSessionRepository sessionRepository,
+            ReauthService reauthService
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.adminAccessService = adminAccessService;
         this.userRepository = userRepository;
         this.sessionRepository = sessionRepository;
+        this.reauthService = reauthService;
     }
 
     @GetMapping("/overview")
@@ -140,6 +146,61 @@ public class AdminController {
                 rs.getInt("subject_count"),
                 timestampToLocalDateTime(rs.getTimestamp("last_session_at"))
         ), userId).stream().findFirst().orElseThrow();
+    }
+
+    @DeleteMapping("/users/{userId}")
+    @Transactional
+    public AdminUserDeletionResponse permanentlyDeleteUser(
+            @PathVariable long userId,
+            @Valid @RequestBody AdminUserDeletionRequest body,
+            HttpServletRequest request
+    ) {
+        UserRecord admin = adminAccessService.require(request);
+        UserRecord reauthenticatedAdmin = reauthService.require(request);
+        if (admin.id() != reauthenticatedAdmin.id()) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "현재 관리자 세션에서 비밀번호를 다시 확인해 주세요.");
+        }
+        if (admin.id() == userId) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "현재 로그인한 관리자 자신의 계정은 삭제할 수 없습니다.");
+        }
+        UserRecord target = userRepository.findById(userId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "회원을 찾을 수 없습니다."));
+        if (adminAccessService.isAdminEmail(target.email())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "관리자 허용 목록에 포함된 계정은 영구 삭제할 수 없습니다.");
+        }
+        if (!"WITHDRAWN".equals(target.accountStatus())) {
+            throw new ApiException(HttpStatus.CONFLICT, "WITHDRAWN 상태의 회원만 영구 삭제할 수 있습니다.");
+        }
+        if (!target.email().equalsIgnoreCase(body.confirmEmail().trim())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "삭제 확인 이메일이 회원 이메일과 일치하지 않습니다.");
+        }
+
+        sessionRepository.revokeAllForUser(target.id(), Instant.now());
+        int wrongNotes = jdbcTemplate.update("DELETE FROM wrong_notes WHERE user_id = ?", target.id());
+        int diagnosisAnswers = jdbcTemplate.update("""
+                DELETE FROM diagnosis_answers
+                 WHERE attempt_id IN (SELECT id FROM diagnosis_attempts WHERE user_id = ?)
+                """, target.id());
+        int diagnosisAttempts = jdbcTemplate.update("DELETE FROM diagnosis_attempts WHERE user_id = ?", target.id());
+        int planSteps = jdbcTemplate.update("""
+                DELETE FROM plan_steps
+                 WHERE plan_id IN (SELECT id FROM daily_plans WHERE user_id = ?)
+                """, target.id());
+        int dailyPlans = jdbcTemplate.update("DELETE FROM daily_plans WHERE user_id = ?", target.id());
+        int dailyStats = jdbcTemplate.update("DELETE FROM study_daily_stats WHERE user_id = ?", target.id());
+        int userSubjects = jdbcTemplate.update("DELETE FROM user_subjects WHERE user_id = ?", target.id());
+        int sessions = jdbcTemplate.update("DELETE FROM jwt_sessions WHERE user_id = ?", target.id());
+        int users = jdbcTemplate.update("""
+                DELETE FROM users WHERE id = ? AND account_status = 'WITHDRAWN'
+                """, target.id());
+        if (users != 1) {
+            throw new ApiException(HttpStatus.CONFLICT, "회원 상태가 변경되어 영구 삭제를 완료하지 못했습니다.");
+        }
+        return new AdminUserDeletionResponse(
+                target.id(), target.email(), Instant.now(),
+                sessions, userSubjects, dailyPlans, planSteps,
+                diagnosisAttempts, diagnosisAnswers, wrongNotes, dailyStats
+        );
     }
 
     @GetMapping("/users")
@@ -488,6 +549,24 @@ public class AdminController {
     ) {}
 
     public record AccountStatusUpdateRequest(@NotBlank String status) {}
+
+    public record AdminUserDeletionRequest(
+            @NotBlank @Email @Size(max = 254) String confirmEmail
+    ) {}
+
+    public record AdminUserDeletionResponse(
+            long userId,
+            String email,
+            Instant deletedAt,
+            int sessions,
+            int userSubjects,
+            int dailyPlans,
+            int planSteps,
+            int diagnosisAttempts,
+            int diagnosisAnswers,
+            int wrongNotes,
+            int dailyStats
+    ) {}
 
     public record AdminUserPageResponse(List<AdminUserResponse> content, long totalElements, int page, int size) {}
 

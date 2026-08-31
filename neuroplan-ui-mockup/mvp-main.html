@@ -108,6 +108,8 @@
       color: var(--blue-dark);
       font-size: 13px;
       font-weight: 800;
+      border: 0;
+      cursor: pointer;
     }
     .user-avatar {
       width: 27px;
@@ -118,6 +120,41 @@
       color: #fff;
       background: var(--blue);
     }
+    .user-menu { position: relative; }
+    .user-chip-caret { font-size: 10px; transition: transform .16s ease; }
+    .user-chip[aria-expanded="true"] .user-chip-caret { transform: rotate(180deg); }
+    .user-dropdown {
+      position: absolute;
+      top: calc(100% + 10px);
+      right: 0;
+      z-index: 42;
+      width: 230px;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--paper);
+      box-shadow: 0 20px 48px rgba(47,86,72,.22);
+    }
+    .user-menu-item {
+      width: 100%;
+      min-height: 42px;
+      padding: 0 12px;
+      border: 0;
+      border-radius: 11px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--ink);
+      background: transparent;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 800;
+      text-align: left;
+    }
+    .user-menu-item:hover, .user-menu-item:focus-visible { background: var(--blue-soft); }
+    .user-menu-item.danger-text { color: #a9584e; }
+    .user-menu-divider { height: 1px; margin: 6px 4px; background: var(--line); }
+    .user-menu-scrim { position: fixed; inset: 0; z-index: 39; background: transparent; }
 
     .button {
       min-height: 43px;
@@ -317,6 +354,15 @@
     .history-item { padding: 14px; border: 1px solid var(--line); border-radius: 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #fbfefc; }
     .history-item p { margin: 5px 0 0; color: var(--muted); font-size: 11px; }
     .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .account-overview { grid-column: 1 / -1; }
+    .account-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .account-fact { min-height: 92px; padding: 15px; border-radius: 16px; background: var(--sky-soft); }
+    .account-fact span { display: block; margin-bottom: 8px; color: var(--muted); font-size: 10px; font-weight: 800; }
+    .account-fact strong { color: var(--navy); font-size: 13px; overflow-wrap: anywhere; }
+    .security-status { display: inline-flex; align-items: center; gap: 7px; color: #39705a; font-size: 11px; font-weight: 800; }
+    .security-status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--teal); }
+    .danger-zone { border-color: #edc4bf; background: linear-gradient(180deg, var(--paper), #fff9f7); }
+    .danger-zone .card-head p { color: #94635d; }
     .settings-form { display: grid; gap: 11px; }
 
     .main-grid { margin-top: 16px; display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(300px, .65fr); gap: 16px; }
@@ -612,6 +658,11 @@
     .account-badge.withdrawn { color: #9e5148; background: var(--danger-soft); }
     .admin-user-actions { display: flex; flex-wrap: wrap; gap: 6px; }
     .admin-user-actions .button { min-height: 30px; padding: 0 9px; font-size: 10px; }
+    .admin-pagination { margin-top: 13px; display: flex; align-items: center; justify-content: flex-end; gap: 9px; }
+    .admin-pagination span { min-width: 92px; color: var(--muted); font-size: 11px; font-weight: 800; text-align: center; }
+    .delete-summary { margin: 0 0 14px; padding: 14px; border: 1px solid #edc4bf; border-radius: 14px; background: var(--danger-soft); }
+    .delete-summary strong, .delete-summary span { display: block; overflow-wrap: anywhere; }
+    .delete-summary span { margin-top: 5px; color: #94635d; font-size: 11px; }
     .danger-note { margin: 0 0 16px; padding: 13px 14px; border-radius: 13px; color: #8e5049; background: var(--danger-soft); font-size: 12px; line-height: 1.55; }
 
     @media (max-width: 900px) {
@@ -619,6 +670,7 @@
       .main-grid { grid-template-columns: 1fr; }
       .insight-grid { grid-template-columns: 1fr; }
       .settings-grid { grid-template-columns: 1fr; }
+      .account-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .admin-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 680px) {
@@ -641,6 +693,21 @@
       .modal-backdrop { padding: 12px; }
       .admin-head { align-items: flex-start; flex-direction: column; }
       .admin-metrics { grid-template-columns: 1fr; }
+      .account-facts { grid-template-columns: 1fr; }
+      .user-dropdown {
+        position: fixed;
+        top: auto;
+        right: 12px;
+        bottom: 12px;
+        left: 12px;
+        z-index: 42;
+        width: auto;
+        padding: 12px;
+        border-radius: 23px;
+      }
+      .user-menu-item { min-height: 50px; font-size: 14px; }
+      .user-menu-scrim { background: rgba(35,58,49,.26); backdrop-filter: blur(2px); }
+      .admin-pagination { justify-content: center; }
     }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
@@ -658,16 +725,24 @@
         <button class="button secondary small" id="resetDemo" type="button">데모 초기화</button>
         <button class="button primary small" id="signupButton" type="button">회원가입</button>
         <button class="button ghost" id="loginButton" type="button">로그인</button>
-        <button class="button secondary small" id="adminButton" type="button" hidden>관리자</button>
-        <button class="button ghost small" id="withdrawButton" type="button" hidden>회원 탈퇴</button>
-        <button class="button ghost small" id="logoutButton" type="button" hidden>로그아웃</button>
-        <div class="user-chip" id="userChip" hidden>
-          <span class="user-avatar" id="userInitial">김</span>
-          <span id="userName">김뉴로</span>
+        <div class="user-menu" id="userMenu" hidden>
+          <button class="user-chip" id="userMenuButton" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="userDropdown">
+            <span class="user-avatar" id="userInitial">김</span>
+            <span id="userName">김뉴로</span>
+            <span class="user-chip-caret" aria-hidden="true">▼</span>
+          </button>
+          <div class="user-dropdown" id="userDropdown" role="menu" hidden>
+            <button class="user-menu-item" type="button" role="menuitem" data-user-action="account">⚙ 계정 설정</button>
+            <button class="user-menu-item" type="button" role="menuitem" data-user-action="sessions">◫ 전체 세션 로그아웃</button>
+            <button class="user-menu-item" id="adminMenuItem" type="button" role="menuitem" data-user-action="admin" hidden>◆ 관리자 페이지</button>
+            <div class="user-menu-divider" role="separator"></div>
+            <button class="user-menu-item danger-text" type="button" role="menuitem" data-user-action="logout">↪ 로그아웃</button>
+          </div>
         </div>
       </div>
     </div>
   </header>
+  <div class="user-menu-scrim" id="userMenuScrim" hidden></div>
 
   <nav class="category-nav" id="categoryNav" aria-label="서비스 카테고리">
     <div class="category-nav-inner">
@@ -676,7 +751,6 @@
       <button class="category-button" type="button" data-page="quiz">문제 풀이</button>
       <button class="category-button" type="button" data-page="wrong">오답 노트</button>
       <button class="category-button" type="button" data-page="history">학습 기록</button>
-      <button class="category-button" type="button" data-page="account">계정 설정</button>
     </div>
   </nav>
 
@@ -842,10 +916,26 @@
     </section>
 
     <section class="settings-grid page-title-card" data-page-section="account" hidden aria-label="계정 설정">
+      <article class="content-card account-overview">
+        <div class="card-head"><div><h2>계정 설정</h2><p>비밀번호 확인 후 5분 동안 민감한 계정 작업을 수행할 수 있습니다.</p></div><span class="security-status" id="reauthStatus">보안 확인 필요</span></div>
+        <div class="account-facts">
+          <div class="account-fact"><span>이메일</span><strong id="accountEmail">-</strong></div>
+          <div class="account-fact"><span>계정 상태</span><strong id="accountStatus">-</strong></div>
+          <div class="account-fact"><span>가입일</span><strong id="accountCreatedAt">-</strong></div>
+          <div class="account-fact"><span>활성 세션</span><strong id="accountSessionCount">-</strong></div>
+        </div>
+      </article>
+      <article class="content-card">
+        <div class="card-head"><div><h2>프로필 정보</h2><p>서비스에 표시되는 닉네임을 변경합니다.</p></div></div>
+        <form class="settings-form" id="nicknameForm">
+          <div class="field"><label for="accountNickname">닉네임</label><input id="accountNickname" type="text" minlength="2" maxlength="50" pattern="[가-힣A-Za-z0-9][가-힣A-Za-z0-9 ._-]{1,49}" autocomplete="nickname" required></div>
+          <div class="form-message" id="nicknameMessage" role="alert"></div>
+          <button class="button primary" type="submit">닉네임 저장</button>
+        </form>
+      </article>
       <article class="content-card">
         <div class="card-head"><div><h2>비밀번호 변경</h2><p>변경하면 모든 기기에서 로그아웃됩니다.</p></div></div>
         <form class="settings-form" id="changePasswordForm">
-          <div class="field"><label for="currentPassword">현재 비밀번호</label><input id="currentPassword" type="password" minlength="8" maxlength="72" autocomplete="current-password" required></div>
           <div class="field"><label for="newPassword">새 비밀번호</label><input id="newPassword" type="password" minlength="8" maxlength="72" autocomplete="new-password" required></div>
           <div class="field"><label for="confirmNewPassword">새 비밀번호 확인</label><input id="confirmNewPassword" type="password" minlength="8" maxlength="72" autocomplete="new-password" required></div>
           <div class="form-message" id="passwordMessage" role="alert"></div>
@@ -853,8 +943,12 @@
         </form>
       </article>
       <article class="content-card">
-        <div class="card-head"><div><h2>로그인 세션 관리</h2><p>분실 기기 등을 포함해 발급된 세션을 모두 종료합니다.</p></div></div>
+        <div class="card-head"><div><h2>로그인 세션 관리</h2><p>현재 세션을 포함해 발급된 세션을 모두 종료합니다.</p></div></div>
         <button class="button secondary block" id="revokeSessionsButton" type="button">모든 기기에서 로그아웃</button>
+      </article>
+      <article class="content-card danger-zone account-overview">
+        <div class="card-head"><div><h2>위험 작업</h2><p>회원 탈퇴 시 계정은 WITHDRAWN 상태가 되고 모든 세션이 종료됩니다.</p></div></div>
+        <button class="button danger" id="withdrawButton" type="button">회원 탈퇴</button>
       </article>
     </section>
   </main>
@@ -886,6 +980,11 @@
           <thead><tr><th>회원</th><th>상태</th><th>선택 과목</th><th>가입 시각</th><th>최근 세션</th><th>관리</th></tr></thead>
           <tbody id="adminUsersBody"><tr><td colspan="6">관리자 데이터를 불러오는 중입니다.</td></tr></tbody>
         </table>
+      </div>
+      <div class="admin-pagination" aria-label="회원 목록 페이지 이동">
+        <button class="button secondary small" id="adminPrevPage" type="button">이전</button>
+        <span id="adminPageLabel">1 / 1</span>
+        <button class="button secondary small" id="adminNextPage" type="button">다음</button>
       </div>
     </section>
     <section class="settings-grid page-title-card" aria-label="학습 콘텐츠 관리">
@@ -935,7 +1034,7 @@
         <form id="authForm" autocomplete="off" novalidate>
           <div class="field" id="nameField">
             <label for="authName">이름</label>
-            <input id="authName" name="nickname" type="text" autocomplete="off" maxlength="60" placeholder="김뉴로">
+            <input id="authName" name="nickname" type="text" autocomplete="off" minlength="2" maxlength="50" placeholder="김뉴로">
           </div>
           <div class="field">
             <label for="authEmail">이메일</label>
@@ -972,6 +1071,23 @@
     </section>
   </div>
 
+  <div class="modal-backdrop" id="reauthModal" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="reauthTitle">
+      <div class="modal-head">
+        <div><h2 id="reauthTitle">비밀번호 확인</h2><p>계정 보호를 위해 현재 비밀번호를 다시 입력해 주세요.</p></div>
+        <button class="close-button" type="button" data-close="reauthModal" aria-label="닫기">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="auth-hint">확인 후 5분 동안 계정 설정과 민감한 관리자 작업을 이용할 수 있습니다.</p>
+        <form id="reauthForm" autocomplete="off">
+          <div class="field"><label for="reauthPassword">현재 비밀번호</label><input id="reauthPassword" type="password" autocomplete="current-password" minlength="8" maxlength="72" required></div>
+          <div class="form-message" id="reauthMessage" role="alert"></div>
+          <button class="button primary block" id="reauthSubmit" type="submit">확인</button>
+        </form>
+      </div>
+    </section>
+  </div>
+
   <div class="modal-backdrop" id="withdrawModal" hidden>
     <section class="modal" role="dialog" aria-modal="true" aria-labelledby="withdrawTitle">
       <div class="modal-head">
@@ -984,6 +1100,24 @@
           <div class="field"><label for="withdrawPassword">현재 비밀번호</label><input id="withdrawPassword" type="password" autocomplete="current-password" minlength="8" maxlength="72" placeholder="현재 비밀번호 입력" required></div>
           <div class="form-message" id="withdrawMessage" role="alert"></div>
           <button class="button danger block" id="withdrawSubmit" type="submit">탈퇴 확인</button>
+        </form>
+      </div>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="adminDeleteModal" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="adminDeleteTitle">
+      <div class="modal-head">
+        <div><h2 id="adminDeleteTitle">사용자 영구 삭제</h2><p>이 작업은 취소할 수 없으며 관련 학습 데이터도 삭제됩니다.</p></div>
+        <button class="close-button" type="button" data-close="adminDeleteModal" aria-label="닫기">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="delete-summary"><strong id="adminDeleteNickname">-</strong><span id="adminDeleteEmail">-</span></div>
+        <p class="danger-note">WITHDRAWN 회원의 세션, 과목 설정, 플랜, 진단 답안, 오답 노트와 일별 통계가 영구 삭제됩니다. 관리자 계정과 현재 로그인 계정은 삭제할 수 없습니다.</p>
+        <form id="adminDeleteForm" autocomplete="off">
+          <div class="field"><label for="adminDeleteConfirmEmail">확인을 위해 사용자 이메일을 입력하세요</label><input id="adminDeleteConfirmEmail" type="email" autocomplete="off" required></div>
+          <div class="form-message" id="adminDeleteMessage" role="alert"></div>
+          <button class="button danger block" id="adminDeleteSubmit" type="submit">사용자 및 학습 데이터 영구 삭제</button>
         </form>
       </div>
     </section>

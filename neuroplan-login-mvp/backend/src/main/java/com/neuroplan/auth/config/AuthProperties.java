@@ -9,6 +9,7 @@ public record AuthProperties(
         String issuer,
         Duration accessTokenTtl,
         Duration refreshTokenTtl,
+        Duration reauthTokenTtl,
         boolean secureCookies,
         String jwtSecretBase64
 ) {

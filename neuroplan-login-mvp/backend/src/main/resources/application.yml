@@ -30,6 +30,7 @@ app:
     issuer: ${JWT_ISSUER:neuroplan-auth}
     access-token-ttl: ${JWT_ACCESS_TTL:15m}
     refresh-token-ttl: ${JWT_REFRESH_TTL:7d}
+    reauth-token-ttl: ${JWT_REAUTH_TTL:5m}
     secure-cookies: ${AUTH_COOKIE_SECURE:true}
     jwt-secret-base64: ${JWT_SECRET_BASE64}
   admin:

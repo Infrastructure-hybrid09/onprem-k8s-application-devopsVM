@@ -75,4 +75,15 @@ public class JwtSessionRepository {
                    AND revoked_at IS NULL
                 """, Timestamp.from(revokedAt), userId);
     }
+
+    public long countActiveForUser(long userId) {
+        Long count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                  FROM jwt_sessions
+                 WHERE user_id = ?
+                   AND revoked_at IS NULL
+                   AND expires_at > CURRENT_TIMESTAMP(6)
+                """, Long.class, userId);
+        return count == null ? 0 : count;
+    }
 }

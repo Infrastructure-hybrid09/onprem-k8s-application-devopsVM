@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 public class AuthCookieService {
     public static final String ACCESS_COOKIE = "NEUROPLAN_ACCESS";
     public static final String REFRESH_COOKIE = "NEUROPLAN_REFRESH";
+    public static final String REAUTH_COOKIE = "NEUROPLAN_REAUTH";
 
     private final AuthProperties properties;
 
@@ -33,6 +34,15 @@ public class AuthCookieService {
     public void clear(HttpServletResponse response) {
         add(response, ACCESS_COOKIE, "", "/", Duration.ZERO);
         add(response, REFRESH_COOKIE, "", "/api/auth", Duration.ZERO);
+        clearReauth(response);
+    }
+
+    public void writeReauth(HttpServletResponse response, String reauthToken) {
+        add(response, REAUTH_COOKIE, reauthToken, "/api", properties.reauthTokenTtl());
+    }
+
+    public void clearReauth(HttpServletResponse response) {
+        add(response, REAUTH_COOKIE, "", "/api", Duration.ZERO);
     }
 
     public Optional<String> accessToken(HttpServletRequest request) {
@@ -41,6 +51,10 @@ public class AuthCookieService {
 
     public Optional<String> refreshToken(HttpServletRequest request) {
         return cookie(request, REFRESH_COOKIE);
+    }
+
+    public Optional<String> reauthToken(HttpServletRequest request) {
+        return cookie(request, REAUTH_COOKIE);
     }
 
     private Optional<String> cookie(HttpServletRequest request, String name) {

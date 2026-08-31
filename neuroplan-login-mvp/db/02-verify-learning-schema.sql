@@ -31,7 +31,7 @@ WHERE table_schema = DATABASE()
   )
 ORDER BY table_name, ordinal_position;
 
--- v0.6.0 과목별 당일 플랜은 같은 날짜에 사용자당 여러 과목 행을 저장합니다.
+-- v0.7.0도 과목별 당일 플랜을 사용하므로 같은 날짜에 사용자당 여러 과목 행을 저장합니다.
 -- daily_plans의 UNIQUE 인덱스는 user_id + subject_id + plan_date 조합이어야 합니다.
 SELECT index_name,
        non_unique,
@@ -41,3 +41,21 @@ WHERE table_schema = DATABASE()
   AND table_name = 'daily_plans'
 GROUP BY index_name, non_unique
 ORDER BY non_unique, index_name;
+
+-- 관리자 영구 삭제 구현 전/후 FK 삭제 규칙을 확인합니다.
+-- 애플리케이션은 트랜잭션에서 자식 데이터를 명시적으로 먼저 삭제하므로
+-- CASCADE가 아니어도 동작하지만, 예상하지 못한 FK가 추가됐는지 반드시 확인합니다.
+SELECT rc.table_name,
+       rc.constraint_name,
+       rc.referenced_table_name,
+       rc.delete_rule
+FROM information_schema.referential_constraints rc
+WHERE rc.constraint_schema = DATABASE()
+  AND (
+    rc.referenced_table_name = 'users'
+    OR rc.table_name IN (
+      'jwt_sessions', 'user_subjects', 'daily_plans', 'plan_steps',
+      'diagnosis_attempts', 'diagnosis_answers', 'wrong_notes', 'study_daily_stats'
+    )
+  )
+ORDER BY rc.referenced_table_name, rc.table_name, rc.constraint_name;

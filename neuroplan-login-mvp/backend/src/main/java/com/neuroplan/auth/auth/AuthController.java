@@ -7,7 +7,10 @@ import java.util.UUID;
 import com.neuroplan.auth.auth.dto.AuthResponse;
 import com.neuroplan.auth.auth.dto.ChangePasswordRequest;
 import com.neuroplan.auth.auth.dto.LoginRequest;
+import com.neuroplan.auth.auth.dto.ReauthRequest;
+import com.neuroplan.auth.auth.dto.ReauthResponse;
 import com.neuroplan.auth.auth.dto.SignupRequest;
+import com.neuroplan.auth.auth.dto.UpdateNicknameRequest;
 import com.neuroplan.auth.auth.dto.UserResponse;
 import com.neuroplan.auth.auth.dto.WithdrawRequest;
 import com.neuroplan.auth.config.AuthProperties;
@@ -33,6 +36,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -49,6 +53,7 @@ public class AuthController {
     private final AuthCookieService cookieService;
     private final AuthProperties authProperties;
     private final CurrentUserService currentUserService;
+    private final ReauthService reauthService;
 
     public AuthController(
             UserRepository userRepository,
@@ -58,7 +63,8 @@ public class AuthController {
             RefreshTokenService refreshTokenService,
             AuthCookieService cookieService,
             AuthProperties authProperties,
-            CurrentUserService currentUserService
+            CurrentUserService currentUserService,
+            ReauthService reauthService
     ) {
         this.userRepository = userRepository;
         this.sessionRepository = sessionRepository;
@@ -68,6 +74,7 @@ public class AuthController {
         this.cookieService = cookieService;
         this.authProperties = authProperties;
         this.currentUserService = currentUserService;
+        this.reauthService = reauthService;
     }
 
     @PostMapping("/signup")
@@ -159,7 +166,7 @@ public class AuthController {
             HttpServletRequest request,
             HttpServletResponse response
     ) {
-        UserRecord user = currentUserService.require(request);
+        UserRecord user = reauthService.require(request);
         if (!passwordEncoder.matches(body.password(), user.passwordHash())) {
             throw new ApiException(HttpStatus.UNAUTHORIZED, "비밀번호가 올바르지 않습니다.");
         }
@@ -176,10 +183,7 @@ public class AuthController {
             HttpServletRequest request,
             HttpServletResponse response
     ) {
-        UserRecord user = currentUserService.require(request);
-        if (!passwordEncoder.matches(body.currentPassword(), user.passwordHash())) {
-            throw new ApiException(HttpStatus.UNAUTHORIZED, "현재 비밀번호가 올바르지 않습니다.");
-        }
+        UserRecord user = reauthService.require(request);
         if (passwordEncoder.matches(body.newPassword(), user.passwordHash())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "새 비밀번호는 현재 비밀번호와 달라야 합니다.");
         }
@@ -195,10 +199,45 @@ public class AuthController {
             HttpServletRequest request,
             HttpServletResponse response
     ) {
-        UserRecord user = currentUserService.require(request);
+        UserRecord user = reauthService.require(request);
         sessionRepository.revokeAllForUser(user.id(), Instant.now());
         cookieService.clear(response);
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/reauth")
+    ReauthResponse reauthenticate(
+            @Valid @RequestBody ReauthRequest body,
+            HttpServletRequest request,
+            HttpServletResponse response
+    ) {
+        return reauthService.verify(body.password(), request, response);
+    }
+
+    @DeleteMapping("/reauth")
+    ResponseEntity<Void> clearReauthentication(HttpServletResponse response) {
+        cookieService.clearReauth(response);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/account")
+    AccountResponse account(HttpServletRequest request) {
+        UserRecord user = currentUserService.require(request);
+        return new AccountResponse(UserResponse.from(user), sessionRepository.countActiveForUser(user.id()));
+    }
+
+    @PatchMapping("/profile")
+    @Transactional
+    AuthResponse updateProfile(
+            @Valid @RequestBody UpdateNicknameRequest body,
+            HttpServletRequest request
+    ) {
+        UserRecord user = reauthService.require(request);
+        String nickname = body.nickname().trim();
+        userRepository.updateNickname(user.id(), nickname);
+        UserRecord updated = userRepository.findById(user.id())
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "회원 정보를 찾을 수 없습니다."));
+        return new AuthResponse(UserResponse.from(updated));
     }
 
     private void issueTokens(UserRecord user, HttpServletResponse response) {
@@ -214,6 +253,7 @@ public class AuthController {
         );
         String accessToken = jwtTokenService.createAccessToken(user.id(), tokenId, issuedAt);
         cookieService.write(response, accessToken, refreshToken);
+        cookieService.clearReauth(response);
     }
 
     private void requireActive(UserRecord user) {
@@ -229,4 +269,6 @@ public class AuthController {
     private String normalizeEmail(String email) {
         return email.trim().toLowerCase(Locale.ROOT);
     }
+
+    public record AccountResponse(UserResponse user, long activeSessionCount) {}
 }

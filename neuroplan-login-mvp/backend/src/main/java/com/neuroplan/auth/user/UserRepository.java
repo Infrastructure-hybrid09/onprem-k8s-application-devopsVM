@@ -90,4 +90,12 @@ public class UserRepository {
                  WHERE id = ?
                 """, passwordHash, userId);
     }
+
+    public void updateNickname(long userId, String nickname) {
+        jdbcTemplate.update("""
+                UPDATE users
+                   SET nickname = ?, updated_at = CURRENT_TIMESTAMP(6)
+                 WHERE id = ?
+                """, nickname, userId);
+    }
 }

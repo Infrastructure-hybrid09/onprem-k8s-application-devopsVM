@@ -105,7 +105,16 @@
   let adminSubjects = [];
   let adminSubjectStats = [];
   let adminQuestions = [];
+  let adminUserPage = { content: [], totalElements: 0, page: 0, size: 20 };
+  let adminPageIndex = 0;
+  const adminPageSize = 20;
   let editingAdminQuestionId = null;
+  let adminDeleteTarget = null;
+  let accountDetails = null;
+  let accountDirty = false;
+  let activePage = "dashboard";
+  let reauthExpiresAt = 0;
+  let pendingSecureAction = null;
 
   function loadState() {
     try {
@@ -168,12 +177,102 @@
   function closeModal(id) {
     document.getElementById(id).hidden = true;
     if (id === "authModal") clearAuthFields();
+    if (id === "reauthModal") {
+      $("#reauthForm").reset();
+      $("#reauthMessage").textContent = "";
+      pendingSecureAction = null;
+    }
+    if (id === "adminDeleteModal") {
+      $("#adminDeleteForm").reset();
+      $("#adminDeleteMessage").textContent = "";
+      adminDeleteTarget = null;
+    }
+  }
+
+  function openUserMenu() {
+    if (!state.authenticated) return;
+    $("#userDropdown").hidden = false;
+    $("#userMenuScrim").hidden = false;
+    $("#userMenuButton").setAttribute("aria-expanded", "true");
+  }
+
+  function closeUserMenu({ restoreFocus = false } = {}) {
+    $("#userDropdown").hidden = true;
+    $("#userMenuScrim").hidden = true;
+    $("#userMenuButton").setAttribute("aria-expanded", "false");
+    if (restoreFocus && state.authenticated) $("#userMenuButton").focus();
+  }
+
+  function hasValidReauth() {
+    return reauthExpiresAt > Date.now() + 1000;
+  }
+
+  function updateReauthStatus() {
+    const target = $("#reauthStatus");
+    if (!target) return;
+    if (!hasValidReauth()) {
+      target.textContent = "보안 확인 필요";
+      return;
+    }
+    const seconds = Math.max(0, Math.ceil((reauthExpiresAt - Date.now()) / 1000));
+    target.textContent = `보안 확인 ${Math.ceil(seconds / 60)}분 남음`;
+  }
+
+  async function requireReauth(action) {
+    if (!hasValidReauth()) {
+      pendingSecureAction = action;
+      $("#reauthForm").reset();
+      $("#reauthMessage").textContent = "";
+      openModal("reauthModal");
+      return undefined;
+    }
+    try {
+      return await action();
+    } catch (error) {
+      if (error.status === 401) {
+        reauthExpiresAt = 0;
+        updateReauthStatus();
+        pendingSecureAction = action;
+        $("#reauthForm").reset();
+        $("#reauthMessage").textContent = "보안 확인이 만료되었습니다. 비밀번호를 다시 입력해 주세요.";
+        openModal("reauthModal");
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
+  function resetAuthenticatedState() {
+    state = { ...defaultState, tasks: [false, false, false] };
+    accountDetails = null;
+    accountDirty = false;
+    reauthExpiresAt = 0;
+    pendingSecureAction = null;
+    adminOverview = null;
+    localStorage.removeItem(storageKey);
+    closeUserMenu();
+  }
+
+  async function logout() {
+    closeUserMenu();
+    try {
+      if (apiConfig.enabled) await apiRequest("/auth/logout", { method: "POST" });
+    } catch (error) {
+      toast(`로그아웃 요청 확인이 필요합니다: ${error.message}`);
+    } finally {
+      resetAuthenticatedState();
+      clearAuthFields();
+      showLearningPage();
+      updateUI();
+      toast("로그아웃했습니다.");
+    }
   }
 
   function showLearningPage() {
     $("#adminPage").hidden = true;
     $("#dashboard").hidden = false;
     $("#categoryNav").hidden = false;
+    activePage = "dashboard";
     showPage("dashboard");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -185,10 +284,50 @@
       toast("로그인 후 이용할 수 있습니다.");
       return;
     }
+    if (activePage === "account" && page !== "account" && accountDirty) {
+      if (!confirm("저장하지 않은 계정 설정 변경사항이 있습니다. 이동할까요?")) return;
+      accountDirty = false;
+    }
+    activePage = page;
     $$('[data-page-section]').forEach(section => { section.hidden = section.dataset.pageSection !== page; });
     $$('[data-page]').forEach(button => button.classList.toggle("active", button.dataset.page === page));
     if (page === "history") await loadPlanHistory();
+    if (page === "account") updateReauthStatus();
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function loadAccountDetails() {
+    accountDetails = apiConfig.enabled
+      ? await apiRequest("/auth/account")
+      : {
+          user: {
+            email: state.userEmail,
+            nickname: state.userName,
+            accountStatus: "ACTIVE",
+            createdAt: new Date().toISOString()
+          },
+          activeSessionCount: 1
+        };
+    state.userName = accountDetails.user.nickname;
+    state.userEmail = accountDetails.user.email;
+    $("#accountEmail").textContent = accountDetails.user.email;
+    $("#accountStatus").textContent = accountDetails.user.accountStatus;
+    $("#accountCreatedAt").textContent = formatDateTime(accountDetails.user.createdAt);
+    $("#accountSessionCount").textContent = `${accountDetails.activeSessionCount}개`;
+    $("#accountNickname").value = accountDetails.user.nickname;
+    $("#nicknameMessage").textContent = "";
+    $("#passwordMessage").textContent = "";
+    accountDirty = false;
+    updateReauthStatus();
+  }
+
+  async function openAccountSettings() {
+    closeUserMenu();
+    await requireReauth(async () => {
+      await loadAccountDetails();
+      await showPage("account");
+      updateUI();
+    });
   }
 
   async function loadAdminOverview() {
@@ -198,11 +337,12 @@
       const status = encodeURIComponent($("#adminUserStatus")?.value || "");
       const [overview, userPage, stats, subjects, questions] = await Promise.all([
         apiRequest("/admin/overview"),
-        apiRequest(`/admin/users?query=${query}&status=${status}&page=0&size=50`),
+        apiRequest(`/admin/users?query=${query}&status=${status}&page=${adminPageIndex}&size=${adminPageSize}`),
         apiRequest("/admin/statistics/subjects"),
         apiRequest("/admin/subjects"),
         apiRequest("/admin/questions")
       ]);
+      adminUserPage = userPage;
       adminOverview = { ...overview, recentUsers: userPage.content };
       adminSubjectStats = stats;
       adminSubjects = subjects;
@@ -221,6 +361,7 @@
             createdAt: new Date().toISOString(), lastSessionAt: new Date().toISOString()
           }]
         };
+      adminUserPage = { content: adminOverview.recentUsers, totalElements: 1, page: 0, size: adminPageSize };
       adminSubjectStats = [];
       adminSubjects = subjectCatalog.map(subject => ({ ...subject, active: true }));
       adminQuestions = [];
@@ -276,9 +417,14 @@
                   <button class="button secondary" type="button" data-admin-status="ACTIVE" data-user-id="${user.id}">활성</button>
                   <button class="button secondary" type="button" data-admin-status="LOCKED" data-user-id="${user.id}">잠금</button>
                   <button class="button secondary" type="button" data-admin-status="WITHDRAWN" data-user-id="${user.id}">탈퇴</button>
+                  ${user.accountStatus === "WITHDRAWN" ? `<button class="button danger" type="button" data-admin-delete="${user.id}">영구 삭제</button>` : ""}
                 </div>`}</td>
           </tr>`).join("")
       : '<tr><td colspan="6">표시할 회원이 없습니다.</td></tr>';
+    const totalPages = Math.max(1, Math.ceil((adminUserPage.totalElements || 0) / adminPageSize));
+    $("#adminPageLabel").textContent = `${adminPageIndex + 1} / ${totalPages}`;
+    $("#adminPrevPage").disabled = adminPageIndex <= 0;
+    $("#adminNextPage").disabled = adminPageIndex + 1 >= totalPages;
     $("#adminSubjectStats").innerHTML = adminSubjectStats.length
       ? adminSubjectStats.map(item => {
           const rate = item.solvedCount ? Math.round((item.correctCount / item.solvedCount) * 100) : 0;
@@ -317,7 +463,8 @@
 
   async function openAdminPage() {
     if (!state.isAdmin) return;
-    $("#adminButton").disabled = true;
+    closeUserMenu();
+    $("#userMenuButton").disabled = true;
     try {
       await loadAdminOverview();
       $("#dashboard").hidden = true;
@@ -327,7 +474,7 @@
     } catch (error) {
       toast(error.message);
     } finally {
-      $("#adminButton").disabled = false;
+      $("#userMenuButton").disabled = false;
     }
   }
 
@@ -348,7 +495,7 @@
     const payload = contentType.includes("application/json")
       ? await response.json()
       : { message: await response.text() };
-    const refreshExcluded = ["/auth/login", "/auth/signup", "/auth/refresh"].includes(path);
+    const refreshExcluded = ["/auth/login", "/auth/signup", "/auth/refresh", "/auth/reauth"].includes(path);
     if (response.status === 401 && allowRefresh && !refreshExcluded) {
       const refreshed = await fetch(`${apiConfig.baseUrl}/auth/refresh`, {
         method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }
@@ -568,15 +715,16 @@
 
     $("#loginButton").hidden = state.authenticated;
     $("#signupButton").hidden = state.authenticated;
-    $("#logoutButton").hidden = !state.authenticated;
-    $("#withdrawButton").hidden = !state.authenticated;
-    $("#adminButton").hidden = !state.authenticated || !state.isAdmin;
     $("#resetDemo").hidden = apiConfig.enabled;
-    $("#userChip").hidden = !state.authenticated;
+    $("#userMenu").hidden = !state.authenticated;
+    $("#adminMenuItem").hidden = !state.authenticated || !state.isAdmin;
+    $("#withdrawButton").hidden = !state.authenticated;
+    if (!state.authenticated) closeUserMenu();
     if (state.authenticated) {
       $("#userName").textContent = state.userName;
       $("#userInitial").textContent = state.userName.slice(0, 1);
     }
+    updateReauthStatus();
 
     $("#heroProgressText").textContent = `${progress}%`;
     $("#heroProgressBar").style.width = `${progress}%`;
@@ -812,8 +960,11 @@
     const name = $("#authName").value.trim();
     const email = $("#authEmail").value.trim();
     const password = $("#authPassword").value;
-    if ((authMode === "signup" && !name) || !email.includes("@") || password.length < 8) {
-      $("#authMessage").textContent = "이름, 올바른 이메일, 8자 이상의 비밀번호를 확인해 주세요.";
+    const validNickname = /^[\p{L}\p{N}][\p{L}\p{N} ._-]{1,49}$/u.test(name);
+    if ((authMode === "signup" && !validNickname) || !email.includes("@") || password.length < 8) {
+      $("#authMessage").textContent = authMode === "signup" && !validNickname
+        ? "닉네임은 2~50자의 문자·숫자로 시작하고 공백, 점, 밑줄, 하이픈만 사용할 수 있습니다."
+        : "올바른 이메일과 8자 이상의 비밀번호를 확인해 주세요.";
       return;
     }
     $("#authSubmit").disabled = true;
@@ -889,7 +1040,53 @@
   $("#profileAction").addEventListener("click", openProfile);
   $("#loginButton").addEventListener("click", () => { setAuthMode("login"); openModal("authModal"); });
   $("#signupButton").addEventListener("click", () => { setAuthMode("signup"); openModal("authModal"); });
-  $("#adminButton").addEventListener("click", openAdminPage);
+  $("#userMenuButton").addEventListener("click", () => {
+    if ($("#userDropdown").hidden) openUserMenu();
+    else closeUserMenu({ restoreFocus: true });
+  });
+  $("#userMenuScrim").addEventListener("click", () => closeUserMenu({ restoreFocus: true }));
+  $("#userMenuButton").addEventListener("keydown", event => {
+    if (!['ArrowDown', 'Enter', ' '].includes(event.key)) return;
+    event.preventDefault();
+    openUserMenu();
+    $(".user-menu-item:not([hidden])", $("#userDropdown"))?.focus();
+  });
+  $("#userDropdown").addEventListener("keydown", event => {
+    const items = $$(".user-menu-item:not([hidden])", $("#userDropdown"));
+    const currentIndex = items.indexOf(document.activeElement);
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeUserMenu({ restoreFocus: true });
+      return;
+    }
+    if (!['ArrowDown', 'ArrowUp'].includes(event.key) || !items.length) return;
+    event.preventDefault();
+    const delta = event.key === "ArrowDown" ? 1 : -1;
+    items[(currentIndex + delta + items.length) % items.length].focus();
+  });
+  $("#userDropdown").addEventListener("click", async event => {
+    const item = event.target.closest("[data-user-action]");
+    if (!item) return;
+    const action = item.dataset.userAction;
+    closeUserMenu();
+    try {
+      if (action === "account") await openAccountSettings();
+      if (action === "admin") await openAdminPage();
+      if (action === "logout") await logout();
+      if (action === "sessions") {
+        if (!confirm("현재 기기를 포함한 모든 로그인 세션을 종료할까요?")) return;
+        await requireReauth(async () => {
+          if (apiConfig.enabled) await apiRequest("/auth/sessions", { method: "DELETE" });
+          resetAuthenticatedState();
+          showLearningPage();
+          updateUI();
+          toast("모든 로그인 세션을 종료했습니다.");
+        });
+      }
+    } catch (error) {
+      toast(error.message);
+    }
+  });
   $("#adminBackButton").addEventListener("click", showLearningPage);
   $("#adminRefresh").addEventListener("click", async () => {
     try {
@@ -901,6 +1098,18 @@
   });
   $("#adminUserSearchForm").addEventListener("submit", async event => {
     event.preventDefault();
+    adminPageIndex = 0;
+    try { await loadAdminOverview(); } catch (error) { toast(error.message); }
+  });
+  $("#adminPrevPage").addEventListener("click", async () => {
+    if (adminPageIndex <= 0) return;
+    adminPageIndex -= 1;
+    try { await loadAdminOverview(); } catch (error) { toast(error.message); }
+  });
+  $("#adminNextPage").addEventListener("click", async () => {
+    const totalPages = Math.max(1, Math.ceil((adminUserPage.totalElements || 0) / adminPageSize));
+    if (adminPageIndex + 1 >= totalPages) return;
+    adminPageIndex += 1;
     try { await loadAdminOverview(); } catch (error) { toast(error.message); }
   });
   $("#adminSubjectForm").addEventListener("submit", async event => {
@@ -947,43 +1156,131 @@
   $("#wrongSubjectFilter").addEventListener("change", renderWrongNotes);
   $("#wrongStatusFilter").addEventListener("change", renderWrongNotes);
   $("#refreshHistory").addEventListener("click", loadPlanHistory);
+  $("#reauthForm").addEventListener("submit", async event => {
+    event.preventDefault();
+    const password = $("#reauthPassword").value;
+    const submit = $("#reauthSubmit");
+    submit.disabled = true;
+    $("#reauthMessage").textContent = "";
+    try {
+      const response = apiConfig.enabled
+        ? await apiRequest("/auth/reauth", {
+            method: "POST",
+            body: JSON.stringify({ password })
+          })
+        : { expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString() };
+      const expiresAt = Date.parse(response.expiresAt);
+      reauthExpiresAt = Number.isNaN(expiresAt) ? Date.now() + 5 * 60 * 1000 : expiresAt;
+      const action = pendingSecureAction;
+      closeModal("reauthModal");
+      updateReauthStatus();
+      if (action) {
+        try {
+          await action();
+        } catch (actionError) {
+          toast(actionError.message);
+        }
+      }
+    } catch (error) {
+      $("#reauthMessage").textContent = error.message;
+    } finally {
+      submit.disabled = false;
+    }
+  });
+  $("#accountNickname").addEventListener("input", () => {
+    accountDirty = Boolean(accountDetails)
+      && $("#accountNickname").value.trim() !== accountDetails.user.nickname;
+  });
+  $("#newPassword").addEventListener("input", () => { accountDirty = Boolean($("#newPassword").value); });
+  $("#confirmNewPassword").addEventListener("input", () => { accountDirty = Boolean($("#confirmNewPassword").value || $("#newPassword").value); });
+  $("#nicknameForm").addEventListener("submit", async event => {
+    event.preventDefault();
+    const nickname = $("#accountNickname").value.trim();
+    $("#nicknameMessage").textContent = "";
+    if (!/^[\p{L}\p{N}][\p{L}\p{N} ._-]{1,49}$/u.test(nickname)) {
+      $("#nicknameMessage").textContent = "닉네임은 2~50자의 문자·숫자로 시작하고 공백, 점, 밑줄, 하이픈만 사용할 수 있습니다.";
+      return;
+    }
+    const submit = $("button[type='submit']", event.currentTarget);
+    submit.disabled = true;
+    try {
+      await requireReauth(async () => {
+        const payload = apiConfig.enabled
+          ? await apiRequest("/auth/profile", {
+              method: "PATCH",
+              body: JSON.stringify({ nickname })
+            })
+          : { user: { ...accountDetails.user, nickname, updatedAt: new Date().toISOString() } };
+        state.userName = payload.user.nickname;
+        accountDetails = { ...accountDetails, user: payload.user };
+        accountDirty = false;
+        updateUI();
+        await loadAccountDetails();
+        toast("닉네임을 변경했습니다.");
+      });
+    } catch (error) {
+      $("#nicknameMessage").textContent = error.message;
+    } finally {
+      submit.disabled = false;
+    }
+  });
   $("#changePasswordForm").addEventListener("submit", async event => {
     event.preventDefault();
-    const currentPassword = $("#currentPassword").value;
     const newPassword = $("#newPassword").value;
+    $("#passwordMessage").textContent = "";
+    if (newPassword.length < 8 || newPassword.length > 72) {
+      $("#passwordMessage").textContent = "새 비밀번호는 8~72자로 입력해 주세요.";
+      return;
+    }
     if (newPassword !== $("#confirmNewPassword").value) {
       $("#passwordMessage").textContent = "새 비밀번호 확인이 일치하지 않습니다.";
       return;
     }
+    const submit = $("button[type='submit']", event.currentTarget);
+    submit.disabled = true;
     try {
-      if (apiConfig.enabled) await apiRequest("/auth/password", { method: "PUT", body: JSON.stringify({ currentPassword, newPassword }) });
-      state = { ...defaultState, tasks: [false, false, false] };
-      localStorage.removeItem(storageKey);
-      event.target.reset();
-      showLearningPage();
-      updateUI();
-      toast("비밀번호를 변경했습니다. 새 비밀번호로 다시 로그인해 주세요.");
-    } catch (error) { $("#passwordMessage").textContent = error.message; }
+      await requireReauth(async () => {
+        if (apiConfig.enabled) {
+          await apiRequest("/auth/password", { method: "PUT", body: JSON.stringify({ newPassword }) });
+        }
+        event.target.reset();
+        resetAuthenticatedState();
+        showLearningPage();
+        updateUI();
+        toast("비밀번호를 변경했습니다. 새 비밀번호로 다시 로그인해 주세요.");
+      });
+    } catch (error) {
+      $("#passwordMessage").textContent = error.message;
+    } finally {
+      submit.disabled = false;
+    }
   });
   $("#revokeSessionsButton").addEventListener("click", async () => {
     if (!confirm("모든 기기의 로그인 세션을 종료할까요?")) return;
     try {
-      if (apiConfig.enabled) await apiRequest("/auth/sessions", { method: "DELETE" });
-      state = { ...defaultState, tasks: [false, false, false] };
-      localStorage.removeItem(storageKey);
-      showLearningPage();
-      updateUI();
-      toast("모든 로그인 세션을 종료했습니다.");
+      await requireReauth(async () => {
+        if (apiConfig.enabled) await apiRequest("/auth/sessions", { method: "DELETE" });
+        resetAuthenticatedState();
+        showLearningPage();
+        updateUI();
+        toast("모든 로그인 세션을 종료했습니다.");
+      });
     } catch (error) { toast(error.message); }
   });
   $("#homeBrand").addEventListener("click", event => {
     event.preventDefault();
     showLearningPage();
   });
-  $("#withdrawButton").addEventListener("click", () => {
-    $("#withdrawForm").reset();
-    $("#withdrawMessage").textContent = "";
-    openModal("withdrawModal");
+  $("#withdrawButton").addEventListener("click", async () => {
+    try {
+      await requireReauth(async () => {
+        $("#withdrawForm").reset();
+        $("#withdrawMessage").textContent = "";
+        openModal("withdrawModal");
+      });
+    } catch (error) {
+      toast(error.message);
+    }
   });
 
   $("#withdrawForm").addEventListener("submit", async event => {
@@ -996,16 +1293,16 @@
     if (!confirm("정말 회원 탈퇴하시겠습니까? 이 계정은 다시 로그인할 수 없습니다.")) return;
     $("#withdrawSubmit").disabled = true;
     try {
-      if (apiConfig.enabled) {
-        await apiRequest("/auth/withdraw", { method: "POST", body: JSON.stringify({ password }) });
-      }
-      state = { ...defaultState, tasks: [false, false, false] };
-      localStorage.removeItem(storageKey);
-      adminOverview = null;
-      closeModal("withdrawModal");
-      showLearningPage();
-      updateUI();
-      toast("회원 탈퇴가 완료되었습니다.");
+      await requireReauth(async () => {
+        if (apiConfig.enabled) {
+          await apiRequest("/auth/withdraw", { method: "POST", body: JSON.stringify({ password }) });
+        }
+        closeModal("withdrawModal");
+        resetAuthenticatedState();
+        showLearningPage();
+        updateUI();
+        toast("회원 탈퇴가 완료되었습니다.");
+      });
     } catch (error) {
       $("#withdrawMessage").textContent = error.message;
     } finally {
@@ -1013,19 +1310,38 @@
     }
   });
 
-  $("#logoutButton").addEventListener("click", async () => {
+  $("#adminDeleteForm").addEventListener("submit", async event => {
+    event.preventDefault();
+    if (!adminDeleteTarget) {
+      $("#adminDeleteMessage").textContent = "삭제할 사용자를 다시 선택해 주세요.";
+      return;
+    }
+    const confirmEmail = $("#adminDeleteConfirmEmail").value.trim();
+    if (confirmEmail.toLowerCase() !== adminDeleteTarget.email.toLowerCase()) {
+      $("#adminDeleteMessage").textContent = "입력한 이메일이 삭제 대상과 일치하지 않습니다.";
+      return;
+    }
+    if (!confirm(`${adminDeleteTarget.email} 사용자와 모든 학습 데이터를 영구 삭제할까요?`)) return;
+    const target = { ...adminDeleteTarget };
+    const submit = $("#adminDeleteSubmit");
+    submit.disabled = true;
+    $("#adminDeleteMessage").textContent = "";
     try {
-      if (apiConfig.enabled) await apiRequest("/auth/logout", { method: "POST" });
+      await requireReauth(async () => {
+        const result = apiConfig.enabled
+          ? await apiRequest(`/admin/users/${target.id}`, {
+              method: "DELETE",
+              body: JSON.stringify({ confirmEmail })
+            })
+          : { email: target.email };
+        closeModal("adminDeleteModal");
+        await loadAdminOverview();
+        toast(`${result.email} 사용자를 영구 삭제했습니다.`);
+      });
     } catch (error) {
-      toast(`로그아웃 요청 확인이 필요합니다: ${error.message}`);
+      $("#adminDeleteMessage").textContent = error.message;
     } finally {
-      state = { ...defaultState, tasks: [false, false, false] };
-      adminOverview = null;
-      localStorage.removeItem(storageKey);
-      clearAuthFields();
-      showLearningPage();
-      updateUI();
-      toast("로그아웃했습니다.");
+      submit.disabled = false;
     }
   });
 
@@ -1148,6 +1464,25 @@
   });
 
   document.addEventListener("click", async event => {
+    const deleteAction = event.target.closest("[data-admin-delete]");
+    if (deleteAction && state.isAdmin) {
+      const target = adminOverview?.recentUsers.find(item => item.id === Number(deleteAction.dataset.adminDelete));
+      if (!target) {
+        toast("삭제 대상을 다시 조회해 주세요.");
+        return;
+      }
+      adminDeleteTarget = target;
+      $("#adminDeleteNickname").textContent = target.nickname;
+      $("#adminDeleteEmail").textContent = target.email;
+      $("#adminDeleteForm").reset();
+      $("#adminDeleteMessage").textContent = "";
+      try {
+        await requireReauth(async () => openModal("adminDeleteModal"));
+      } catch (error) {
+        toast(error.message);
+      }
+      return;
+    }
     const subjectAction = event.target.closest("[data-admin-subject-active]");
     if (subjectAction && state.isAdmin && apiConfig.enabled) {
       const subject = adminSubjects.find(item => item.id === Number(subjectAction.dataset.adminSubjectActive));
@@ -1235,6 +1570,12 @@
     } finally {
       action.disabled = false;
     }
+  });
+
+  window.addEventListener("beforeunload", event => {
+    if (!accountDirty) return;
+    event.preventDefault();
+    event.returnValue = "";
   });
 
   renderSubjectChoices();

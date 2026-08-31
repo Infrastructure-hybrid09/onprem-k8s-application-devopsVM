@@ -39,4 +39,8 @@ public class AdminAccessService {
         }
         return user;
     }
+
+    public boolean isAdminEmail(String email) {
+        return email != null && adminEmails.contains(email.toLowerCase(Locale.ROOT));
+    }
 }

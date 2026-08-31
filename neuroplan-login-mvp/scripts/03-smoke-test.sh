@@ -9,10 +9,13 @@ SMOKE_CONNECT_TO="${SMOKE_CONNECT_TO-app.nplan.local:443:192.168.34.41:30443}"
 NAMESPACE="${NAMESPACE:-application}"
 TEST_EMAIL="${TEST_EMAIL:-smoke-$(date +%s)@nplan.local}"
 TEST_PASSWORD="${TEST_PASSWORD:-NeuroPlan!2026}"
+ADMIN_TEST_EMAIL="${ADMIN_TEST_EMAIL:-}"
+ADMIN_TEST_PASSWORD="${ADMIN_TEST_PASSWORD:-}"
 COOKIE_JAR="$(mktemp /tmp/neuroplan-cookie.XXXXXX)"
+ADMIN_COOKIE_JAR="$(mktemp /tmp/neuroplan-admin-cookie.XXXXXX)"
 RESPONSE_FILE="$(mktemp /tmp/neuroplan-signup.XXXXXX)"
 QUESTIONS_FILE="$(mktemp /tmp/neuroplan-questions.XXXXXX)"
-trap 'rm -f -- "$COOKIE_JAR" "$RESPONSE_FILE" "$QUESTIONS_FILE"' EXIT
+trap 'rm -f -- "$COOKIE_JAR" "$ADMIN_COOKIE_JAR" "$RESPONSE_FILE" "$QUESTIONS_FILE"' EXIT
 
 CURL_NETWORK_ARGS=()
 if [[ -n "$SMOKE_CONNECT_TO" ]]; then
@@ -56,6 +59,18 @@ curl_request -ksS --fail \
 echo "===== Session ====="
 curl_request -ksS --fail -b "$COOKIE_JAR" "$BASE_URL/api/auth/me" | jq -e \
   --arg email "$TEST_EMAIL" '.user.email == $email'
+
+echo "===== Account reauthentication / nickname ====="
+curl_request -ksS --fail -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+  -X POST -H 'Content-Type: application/json' \
+  -d "$(jq -nc --arg password "$TEST_PASSWORD" '{password:$password}')" \
+  "$BASE_URL/api/auth/reauth" | jq -e '.expiresAt != null'
+curl_request -ksS --fail -b "$COOKIE_JAR" \
+  -X PATCH -H 'Content-Type: application/json' \
+  -d '{"nickname":"Smoke Test Updated"}' \
+  "$BASE_URL/api/auth/profile" | jq -e '.user.nickname == "Smoke Test Updated"'
+curl_request -ksS --fail -b "$COOKIE_JAR" "$BASE_URL/api/auth/account" | jq -e \
+  --arg email "$TEST_EMAIL" '.user.email == $email and .user.nickname == "Smoke Test Updated" and .activeSessionCount >= 1'
 
 echo "===== Learning subjects / profile ====="
 curl_request -ksS --fail -b "$COOKIE_JAR" "$BASE_URL/api/learning/subjects" | jq -e \
@@ -112,12 +127,20 @@ curl_request -ksS --fail -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
 echo "===== Password change / all-session revocation ====="
 NEW_PASSWORD="NeuroPlan!2027"
 curl_request -ksS --fail -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+  -X POST -H 'Content-Type: application/json' \
+  -d "$(jq -nc --arg password "$TEST_PASSWORD" '{password:$password}')" \
+  "$BASE_URL/api/auth/reauth" | jq -e '.expiresAt != null'
+curl_request -ksS --fail -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
   -X PUT -H 'Content-Type: application/json' \
-  -d "$(jq -nc --arg currentPassword "$TEST_PASSWORD" --arg newPassword "$NEW_PASSWORD" '{currentPassword:$currentPassword,newPassword:$newPassword}')" \
+  -d "$(jq -nc --arg newPassword "$NEW_PASSWORD" '{newPassword:$newPassword}')" \
   "$BASE_URL/api/auth/password" >/dev/null
 curl_request -ksS --fail -c "$COOKIE_JAR" -H 'Content-Type: application/json' \
   -d "$(jq -nc --arg email "$TEST_EMAIL" --arg password "$NEW_PASSWORD" '{email:$email,password:$password}')" \
   "$BASE_URL/api/auth/login" | jq -e --arg email "$TEST_EMAIL" '.user.email == $email'
+curl_request -ksS --fail -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+  -X POST -H 'Content-Type: application/json' \
+  -d "$(jq -nc --arg password "$NEW_PASSWORD" '{password:$password}')" \
+  "$BASE_URL/api/auth/reauth" | jq -e '.expiresAt != null'
 curl_request -ksS --fail -b "$COOKIE_JAR" -c "$COOKIE_JAR" -X DELETE \
   "$BASE_URL/api/auth/sessions" >/dev/null
 curl_request -ksS --fail -c "$COOKIE_JAR" -H 'Content-Type: application/json' \
@@ -127,6 +150,10 @@ curl_request -ksS --fail -b "$COOKIE_JAR" "$BASE_URL/api/auth/me" | jq -e \
   --arg email "$TEST_EMAIL" '.user.email == $email'
 
 echo "===== Membership withdrawal ====="
+curl_request -ksS --fail -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+  -X POST -H 'Content-Type: application/json' \
+  -d "$(jq -nc --arg password "$NEW_PASSWORD" '{password:$password}')" \
+  "$BASE_URL/api/auth/reauth" | jq -e '.expiresAt != null'
 curl_request -ksS --fail -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
   -X POST \
   -H 'Content-Type: application/json' \
@@ -140,5 +167,24 @@ HTTP_CODE="$(curl_request -ksS -o /dev/null -w '%{http_code}' \
   "$BASE_URL/api/auth/login")"
 [[ "$HTTP_CODE" == "403" ]] || { echo "[FAIL] expected 403 login for withdrawn account, got $HTTP_CODE" >&2; exit 5; }
 
-echo "[PASS] auth, per-subject plans, independent diagnosis, dashboard, history, password/session security and withdrawal completed"
+if [[ -n "$ADMIN_TEST_EMAIL" && -n "$ADMIN_TEST_PASSWORD" ]]; then
+  echo "===== Admin permanent deletion ====="
+  curl_request -ksS --fail -c "$ADMIN_COOKIE_JAR" -H 'Content-Type: application/json' \
+    -d "$(jq -nc --arg email "$ADMIN_TEST_EMAIL" --arg password "$ADMIN_TEST_PASSWORD" '{email:$email,password:$password}')" \
+    "$BASE_URL/api/auth/login" | jq -e --arg email "$ADMIN_TEST_EMAIL" '.user.email == $email'
+  curl_request -ksS --fail -b "$ADMIN_COOKIE_JAR" -c "$ADMIN_COOKIE_JAR" \
+    -X POST -H 'Content-Type: application/json' \
+    -d "$(jq -nc --arg password "$ADMIN_TEST_PASSWORD" '{password:$password}')" \
+    "$BASE_URL/api/auth/reauth" | jq -e '.expiresAt != null'
+  TEST_USER_ID="$(jq -er '.user.id' "$RESPONSE_FILE")"
+  curl_request -ksS --fail -b "$ADMIN_COOKIE_JAR" \
+    -X DELETE -H 'Content-Type: application/json' \
+    -d "$(jq -nc --arg confirmEmail "$TEST_EMAIL" '{confirmEmail:$confirmEmail}')" \
+    "$BASE_URL/api/admin/users/$TEST_USER_ID" | jq -e \
+    --arg email "$TEST_EMAIL" '.email == $email and .sessions >= 1'
+else
+  echo "[INFO] Admin permanent deletion skipped; set ADMIN_TEST_EMAIL and ADMIN_TEST_PASSWORD to enable it"
+fi
+
+echo "[PASS] auth, reauthentication, nickname, per-subject plans, diagnosis, dashboard, history, password/session security and withdrawal completed"
 echo "[INFO] DB verification email: $TEST_EMAIL"
