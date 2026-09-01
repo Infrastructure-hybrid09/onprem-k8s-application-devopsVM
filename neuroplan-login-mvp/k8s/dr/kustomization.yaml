@@ -4,7 +4,6 @@ kind: Kustomization
 namespace: application
 
 resources:
-  - 00-namespace.yaml
   - ../base
   - 20-gateway-route.yaml
 
