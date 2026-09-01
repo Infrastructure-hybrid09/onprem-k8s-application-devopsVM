@@ -219,6 +219,7 @@ public class LearningController {
                     """, focus.subjectId(), title, planId, user.id());
             jdbcTemplate.update("DELETE FROM plan_steps WHERE plan_id = ?", planId);
         }
+        jdbcTemplate.update("DELETE FROM daily_plan_ai_meta WHERE plan_id = ?", planId);
 
         insertPlanStep(planId, 1, focus.subjectName() + " 핵심 개념 익히기",
                 focus.levelLabel() + " 수준의 필수 개념과 용어를 정리합니다.");

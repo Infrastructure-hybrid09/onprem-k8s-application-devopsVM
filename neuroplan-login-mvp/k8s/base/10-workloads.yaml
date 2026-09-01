@@ -14,6 +14,15 @@ data:
   AUTH_COOKIE_SECURE: "true"
   # MVP 관리자 계정. 운영 전 팀 승인 이메일로 교체합니다(여러 개는 쉼표로 구분).
   ADMIN_EMAILS: admin@nplan.local
+  LLM_ENABLED: "true"
+  LLM_PROVIDER: CLOUDFLARE
+  LLM_BASE_URL: https://api.cloudflare.com/client/v4
+  LLM_MODEL: "@cf/qwen/qwen3.8-27b"
+  LLM_PROMPT_VERSION: neuroplan-0.8.0-v1
+  LLM_MAX_COMPLETION_TOKENS: "1200"
+  LLM_DAILY_TOKEN_LIMIT: "5000"
+  LLM_CONNECT_TIMEOUT_SECONDS: "5"
+  LLM_READ_TIMEOUT_SECONDS: "90"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -40,7 +49,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: frontend
-          image: 192.168.34.21:5000/neuroplan/frontend:0.7.0
+          image: 192.168.34.21:5000/neuroplan/frontend
           imagePullPolicy: Always
           ports:
             - name: http
@@ -117,13 +126,15 @@ spec:
           type: RuntimeDefault
       containers:
         - name: backend
-          image: 192.168.34.21:5000/neuroplan/backend:0.7.0
+          image: 192.168.34.21:5000/neuroplan/backend
           imagePullPolicy: Always
           envFrom:
             - configMapRef:
                 name: neuroplan-backend-config
             - secretRef:
                 name: neuroplan-auth-secrets
+            - secretRef:
+                name: neuroplan-llm-secrets
           ports:
             - name: http
               containerPort: 8080

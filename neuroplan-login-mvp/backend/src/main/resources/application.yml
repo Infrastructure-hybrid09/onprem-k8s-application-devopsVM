@@ -36,6 +36,18 @@ app:
   admin:
     # 쉼표로 구분한 관리자 이메일 허용 목록입니다. DB 스키마 변경 없이 MVP 관리자 권한을 제한합니다.
     emails: ${ADMIN_EMAILS:}
+  ai:
+    enabled: ${LLM_ENABLED:true}
+    provider: ${LLM_PROVIDER:CLOUDFLARE}
+    base-url: ${LLM_BASE_URL:https://api.cloudflare.com/client/v4}
+    account-id: ${LLM_ACCOUNT_ID:}
+    api-key: ${LLM_API_KEY:}
+    model: ${LLM_MODEL:@cf/qwen/qwen3.8-27b}
+    prompt-version: ${LLM_PROMPT_VERSION:neuroplan-0.8.0-v1}
+    max-completion-tokens: ${LLM_MAX_COMPLETION_TOKENS:1200}
+    daily-token-limit: ${LLM_DAILY_TOKEN_LIMIT:5000}
+    connect-timeout-seconds: ${LLM_CONNECT_TIMEOUT_SECONDS:5}
+    read-timeout-seconds: ${LLM_READ_TIMEOUT_SECONDS:90}
 
 management:
   endpoints:

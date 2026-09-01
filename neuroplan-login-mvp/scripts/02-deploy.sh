@@ -41,6 +41,11 @@ kubectl -n "$NAMESPACE" get secret neuroplan-auth-secrets >/dev/null 2>&1 || {
   echo "Run scripts/00-create-db-secret.sh first." >&2
   exit 2
 }
+kubectl -n "$NAMESPACE" get secret neuroplan-llm-secrets >/dev/null 2>&1 || {
+  echo "[FAIL] secret ${NAMESPACE}/neuroplan-llm-secrets not found" >&2
+  echo "Create LLM_ACCOUNT_ID and LLM_API_KEY as described in README.md." >&2
+  exit 2
+}
 kubectl -n "$NAMESPACE" get gateway neuroplan-gateway >/dev/null
 
 kubectl apply --dry-run=server -k "$KUSTOMIZE_DIR"

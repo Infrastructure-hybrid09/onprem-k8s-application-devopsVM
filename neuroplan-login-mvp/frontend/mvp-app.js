@@ -2,6 +2,7 @@
   "use strict";
 
   const storageKey = "neuroplan-mvp-demo-v2";
+  const sessionHintKey = "neuroplan-session-hint-v1";
   const apiConfig = { enabled: false, baseUrl: "/api", ...(window.NEUROPLAN_API || {}) };
   const fallbackSubjects = [
     { id: 1, code: "LINUX", name: "Linux" },
@@ -43,7 +44,14 @@
       dailyStats: [], subjectStats: [], streakDays: 0, unresolvedWrongNotes: 0
     },
     wrongNotes: [],
-    planHistory: []
+    planHistory: [],
+    ai: {
+      preferences: { enabled: false, consentAt: null, explanationStyle: "BRIEF", availableMinutes: 30 },
+      quota: null,
+      feedbackByQuestion: {},
+      recommendations: [],
+      planRationale: {}
+    }
   };
   const fallbackQuestions = [
     {
@@ -100,6 +108,8 @@
   let quizScore = 0;
   let chosenAnswer = null;
   let answerChecked = false;
+  let quizMode = "BANK";
+  let aiQuizRunId = null;
   let toastTimer;
   let adminOverview = null;
   let adminSubjects = [];
@@ -115,6 +125,40 @@
   let activePage = "dashboard";
   let reauthExpiresAt = 0;
   let pendingSecureAction = null;
+  let pendingAiAction = null;
+
+  function setAiLoading(active, title = "AI가 학습 내용을 준비하고 있어요") {
+    const overlay = $("#aiLoadingOverlay");
+    $("#aiLoadingTitle").textContent = title;
+    $("#aiLoadingMessage").textContent = "보통 수 초, 최대 90초가 걸릴 수 있습니다.";
+    overlay.hidden = !active;
+    document.body.setAttribute("aria-busy", String(active));
+  }
+
+  function planStepContentHtml(content) {
+    const normalized = String(content ?? "").replace(/\r/g, "").trim();
+    if (!normalized) return '<p class="plan-step-summary">학습 내용을 준비하고 있습니다.</p>';
+
+    const lines = normalized
+      .replace(/\s+(?=\d{1,2}[.)]\s+)/g, "\n")
+      .split(/\n+/)
+      .map(value => value.trim())
+      .filter(Boolean);
+    const intro = [];
+    const actions = [];
+    lines.forEach(line => {
+      const numbered = line.match(/^\d{1,2}[.)]\s*(.+)$/s);
+      if (numbered) actions.push(numbered[1].trim());
+      else if (actions.length) actions[actions.length - 1] = `${actions[actions.length - 1]} ${line}`.trim();
+      else intro.push(line);
+    });
+
+    if (!actions.length) return `<p class="plan-step-summary">${escapeHtml(normalized)}</p>`;
+    return [
+      intro.length ? `<p class="plan-step-intro">${escapeHtml(intro.join(" "))}</p>` : "",
+      `<ol class="plan-step-actions">${actions.map(action => `<li>${escapeHtml(action)}</li>`).join("")}</ol>`
+    ].join("");
+  }
 
   function loadState() {
     try {
@@ -128,7 +172,14 @@
         dashboard: { ...defaultState.dashboard, ...(saved.dashboard || {}) },
         wrongNotes: Array.isArray(saved.wrongNotes) ? saved.wrongNotes : [],
         plans: Array.isArray(saved.plans) ? saved.plans : [],
-        planHistory: Array.isArray(saved.planHistory) ? saved.planHistory : []
+        planHistory: Array.isArray(saved.planHistory) ? saved.planHistory : [],
+        ai: {
+          ...defaultState.ai,
+          ...(saved.ai || {}),
+          feedbackByQuestion: { ...(saved.ai?.feedbackByQuestion || {}) },
+          recommendations: Array.isArray(saved.ai?.recommendations) ? saved.ai.recommendations : [],
+          planRationale: { ...(saved.ai?.planRationale || {}) }
+        }
       };
     } catch (_) {
       return { ...defaultState, tasks: [false, false, false] };
@@ -137,6 +188,27 @@
 
   function saveState() {
     if (!apiConfig.enabled) localStorage.setItem(storageKey, JSON.stringify(state));
+  }
+
+  function applySessionHint() {
+    if (!apiConfig.enabled) return;
+    try {
+      const hint = JSON.parse(localStorage.getItem(sessionHintKey) || "null");
+      if (!hint?.nickname || !hint?.email) return;
+      state.authenticated = true;
+      state.userName = hint.nickname;
+      state.userEmail = hint.email;
+    } catch (_) {
+      localStorage.removeItem(sessionHintKey);
+    }
+  }
+
+  function saveSessionHint() {
+    if (!apiConfig.enabled || !state.authenticated) return;
+    localStorage.setItem(sessionHintKey, JSON.stringify({
+      nickname: state.userName,
+      email: state.userEmail
+    }));
   }
 
   function subjectByCode(code) {
@@ -186,6 +258,10 @@
       $("#adminDeleteForm").reset();
       $("#adminDeleteMessage").textContent = "";
       adminDeleteTarget = null;
+    }
+    if (id === "aiConsentModal") {
+      $("#aiConsentMessage").textContent = "";
+      pendingAiAction = null;
     }
   }
 
@@ -243,13 +319,19 @@
   }
 
   function resetAuthenticatedState() {
-    state = { ...defaultState, tasks: [false, false, false] };
+    state = {
+      ...defaultState,
+      tasks: [false, false, false],
+      ai: { ...defaultState.ai, feedbackByQuestion: {}, recommendations: [], planRationale: {} }
+    };
     accountDetails = null;
     accountDirty = false;
     reauthExpiresAt = 0;
     pendingSecureAction = null;
+    pendingAiAction = null;
     adminOverview = null;
     localStorage.removeItem(storageKey);
+    localStorage.removeItem(sessionHintKey);
     closeUserMenu();
   }
 
@@ -517,6 +599,50 @@
     return payload;
   }
 
+  async function loadAiState() {
+    if (!apiConfig.enabled || !state.authenticated) return;
+    try {
+      const [preferences, quota, feedback, recommendations] = await Promise.all([
+        apiRequest("/ai/preferences"),
+        apiRequest("/ai/quota"),
+        apiRequest("/ai/wrong-notes/feedback"),
+        apiRequest("/ai/recommendations")
+      ]);
+      state.ai = {
+        ...state.ai,
+        preferences,
+        quota,
+        feedbackByQuestion: Object.fromEntries((feedback || []).map(item => [String(item.questionId), item])),
+        recommendations: Array.isArray(recommendations) ? recommendations : []
+      };
+    } catch (error) {
+      state.ai = { ...state.ai, quota: null };
+      console.warn("AI 상태를 불러오지 못했습니다.", error);
+    }
+  }
+
+  function openAiSettings(action = null) {
+    const preference = state.ai.preferences || defaultState.ai.preferences;
+    pendingAiAction = action;
+    $("#aiExplanationStyle").value = preference.explanationStyle || "BRIEF";
+    $("#aiAvailableMinutes").value = String(preference.availableMinutes || 30);
+    $("#aiConsentCheck").checked = Boolean(preference.consentAt || preference.enabled);
+    $("#aiConsentMessage").textContent = "";
+    openModal("aiConsentModal");
+  }
+
+  async function ensureAiEnabled(action) {
+    if (!apiConfig.enabled) return action();
+    const preference = state.ai.preferences || defaultState.ai.preferences;
+    if (preference.enabled && preference.consentAt) return action();
+    openAiSettings(action);
+    return undefined;
+  }
+
+  function updateAiQuota(quota) {
+    if (quota) state.ai = { ...state.ai, quota };
+  }
+
   function applyProfile(profile = []) {
     state.subjects = profile.map(item => item.subjectCode);
     state.subjectLevels = Object.fromEntries(profile.map(item => [item.subjectCode, item.levelLabel]));
@@ -561,6 +687,7 @@
     state.dashboard = { ...defaultState.dashboard, ...(dashboard || {}) };
     state.wrongNotes = Array.isArray(wrongNotes) ? wrongNotes : [];
     renderSubjectChoices();
+    await loadAiState();
   }
 
   async function loadPlanHistory() {
@@ -582,16 +709,32 @@
       updateUI();
       return;
     }
+    let payload;
     try {
-      const payload = await apiRequest("/auth/me");
-      state.authenticated = true;
-      state.userName = payload.user.nickname;
-      state.userEmail = payload.user.email;
+      payload = await apiRequest("/auth/me");
+    } catch (error) {
+      if (error.status === 401) resetAuthenticatedState();
+      else toast(`세션 확인이 지연되고 있습니다: ${error.message}`);
+      updateUI();
+      return;
+    }
+
+    state.authenticated = true;
+    state.userName = payload.user.nickname;
+    state.userEmail = payload.user.email;
+    saveSessionHint();
+    updateUI();
+
+    try {
       await loadLearningState();
+    } catch (error) {
+      toast(`로그인은 유지되지만 학습 데이터 일부를 불러오지 못했습니다: ${error.message}`);
+    }
+    try {
       await detectAdmin();
     } catch (error) {
-      if (error.status !== 401) toast(`서버 연결 확인이 필요합니다: ${error.message}`);
-      state = { ...defaultState, tasks: [false, false, false] };
+      state.isAdmin = false;
+      console.warn("관리자 권한을 확인하지 못했습니다.", error);
     }
     updateUI();
   }
@@ -704,14 +847,60 @@
     const pending = allNotes.filter(note => !note.relearned).length;
     $("#wrongNoteCount").textContent = `미해결 ${pending}개`;
     $("#wrongNoteList").innerHTML = notes.length
-      ? notes.map(note => `
+      ? notes.map(note => {
+          const feedback = state.ai.feedbackByQuestion?.[String(note.questionId)];
+          return `
           <article class="wrong-note-item${note.relearned ? " relearned" : ""}">
             <div class="wrong-note-top"><div><span class="wrong-note-subject">${escapeHtml(note.subjectName)} · 누적 오답 ${note.wrongCount}회</span><p class="wrong-note-question">${escapeHtml(note.questionText)}</p></div><span class="wrong-note-status${note.relearned ? "" : " pending"}">${note.relearned ? "재학습 완료" : "재학습 필요"}</span></div>
             <div class="wrong-note-answer"><strong>내 답</strong>: ${escapeHtml(note.selectedOptionText || "기록 없음")}<br><strong>정답</strong>: ${escapeHtml(note.correctOptionText)}</div>
             <p class="wrong-note-explanation"><strong>해설</strong>: ${escapeHtml(note.explanation)}</p>
-            ${note.relearned ? "" : `<button class="button secondary small" type="button" data-relearn-question="${note.questionId}">재학습 완료로 표시</button>`}
-          </article>`).join("")
+            ${feedback ? `<div class="ai-feedback"><strong>AI 맞춤 해설</strong><p>${escapeHtml(feedback.feedback)}</p>${feedback.recommendedActions?.length ? `<ul>${feedback.recommendedActions.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}</div>` : ""}
+            <div class="wrong-note-actions">
+              <button class="button ghost small" type="button" data-ai-feedback="${note.questionId}">${feedback ? "AI 해설 다시 생성" : "AI 해설 받기"}</button>
+              ${note.relearned ? "" : `<button class="button secondary small" type="button" data-relearn-question="${note.questionId}">재학습 완료로 표시</button>`}
+            </div>
+          </article>`;
+        }).join("")
       : '<div class="empty-state"><div><strong>아직 쌓인 오답 노트가 없어요.</strong><span>문제 풀이 후 오답이 자동으로 기록됩니다.</span></div></div>';
+  }
+
+  function renderAiFeatures() {
+    const panel = $("#aiQuotaCard");
+    panel.hidden = !state.authenticated;
+    $("#aiTokenChip").hidden = !state.authenticated;
+    const quota = state.ai.quota;
+    const preference = state.ai.preferences || defaultState.ai.preferences;
+    if (quota) {
+      const remaining = Number(quota.remainingToday || 0);
+      const dailyLimit = Number(quota.dailyLimit || 0);
+      const percent = dailyLimit > 0 ? Math.round((remaining / dailyLimit) * 100) : 0;
+      const boundedPercent = Math.max(0, Math.min(percent, 100));
+      $("#aiRemainingTokens").textContent = remaining.toLocaleString("ko-KR");
+      $("#aiDailyLimit").textContent = dailyLimit.toLocaleString("ko-KR");
+      $("#aiQuotaBar").style.width = `${boundedPercent}%`;
+      $("#aiTokenChipValue").textContent = `${remaining.toLocaleString("ko-KR")} / ${dailyLimit.toLocaleString("ko-KR")}`;
+      $("#aiTokenChipBar").style.width = `${boundedPercent}%`;
+      $(".ai-token-chip-track").setAttribute("aria-valuenow", String(boundedPercent));
+      $("#aiTokenChip").title = `오늘 AI 토큰 ${remaining.toLocaleString("ko-KR")} / ${dailyLimit.toLocaleString("ko-KR")} 남음`;
+      $("#aiQuotaStatus").textContent = preference.enabled ? `오늘 ${Number(quota.usedToday).toLocaleString("ko-KR")} 토큰 사용` : "동의 후 AI 기능 사용 가능";
+    } else {
+      $("#aiRemainingTokens").textContent = "-";
+      $("#aiDailyLimit").textContent = "-";
+      $("#aiQuotaBar").style.width = "0%";
+      $("#aiTokenChipValue").textContent = "- / -";
+      $("#aiTokenChipBar").style.width = "0%";
+      $(".ai-token-chip-track").setAttribute("aria-valuenow", "0");
+      $("#aiQuotaStatus").textContent = apiConfig.enabled ? "AI 상태 확인 필요" : "데모 모드";
+    }
+    $("#aiSettingsButton").textContent = preference.enabled ? "AI 설정 변경" : "AI 사용 설정";
+    $("#generateRecommendation").disabled = !state.authenticated || !hasCompleteProfile();
+
+    const code = state.activeSubjectCode || state.subjects[0];
+    const recommendation = (state.ai.recommendations || []).find(item => item.subjectCode === code);
+    $("#aiRecommendationResult").className = recommendation ? "ai-recommendation-result" : "empty-state";
+    $("#aiRecommendationResult").innerHTML = recommendation
+      ? `<strong>${escapeHtml(recommendation.title)}</strong><p>${escapeHtml(recommendation.content)}</p><div class="ai-recommendation-meta">${escapeHtml(recommendation.subjectName)} · 우선순위 ${recommendation.priority}/5</div>`
+      : '<div><strong>아직 생성된 추천이 없습니다.</strong><span>현재 선택한 과목의 추천 생성 버튼을 눌러 주세요.</span></div>';
   }
 
   function updateUI() {
@@ -761,7 +950,7 @@
     $("#setupProgressText").textContent = hasProfile ? "100%" : state.authenticated ? "50%" : "0%";
     $("#setupProgressBar").style.width = hasProfile ? "100%" : state.authenticated ? "50%" : "0%";
     $("#generatePlan").disabled = !hasProfile;
-    $("#generatePlan").textContent = state.planGenerated ? "플랜 다시 생성하기" : "오늘의 플랜 생성하기";
+    $("#generatePlan").textContent = state.planGenerated ? "AI 플랜 다시 생성하기" : "AI 학습 플랜 생성하기";
 
     $("#planEmpty").hidden = state.planGenerated;
     $("#planContent").hidden = !state.planGenerated;
@@ -774,9 +963,9 @@
       ["One", "Two", "Three"].forEach((suffix, index) => {
         const planStep = state.planSteps.find(item => item.stepNo === index + 1);
         $(`#task${suffix}Title`).textContent = planStep?.title || fallbackTitles[index];
-        $(`#task${suffix}Content`).textContent = planStep?.content || fallbackContents[index];
+        $(`#task${suffix}Content`).innerHTML = planStepContentHtml(planStep?.content || fallbackContents[index]);
       });
-      $("#planBasis").textContent = `${subjectName(focus)} · ${focusLevel} 설정 기준`;
+      $("#planBasis").textContent = state.ai.planRationale?.[focus] || `${subjectName(focus)} · ${focusLevel} 설정 기준`;
       $("#planStatus").textContent = state.quizFinished ? "학습 완료" : completed ? "학습 중" : "플랜 준비됨";
       $("#planNote").textContent = state.quizFinished
         ? "오늘의 학습 결과가 대시보드에 반영되었습니다."
@@ -796,7 +985,10 @@
       button.setAttribute("aria-label", `${index + 1}단계 ${done ? "완료 취소" : "완료"}`);
     });
     $("#quizButton").disabled = !hasProfile || !state.quizSubjectCode;
-    $("#quizGuide").textContent = state.quizFinished ? "최근 풀이 결과가 대시보드에 반영되었습니다. 언제든 다시 풀 수 있어요." : "플랜 체크 여부와 관계없이 5문제를 바로 풀 수 있습니다.";
+    $("#aiQuizButton").disabled = !hasProfile || !state.quizSubjectCode;
+    $("#quizGuide").textContent = state.quizFinished
+      ? "최근 문제은행 결과가 대시보드에 반영되었습니다. 기존 문제 또는 AI 새 문제를 다시 풀 수 있어요."
+      : "플랜 체크 여부와 관계없이 기존 문제은행 또는 AI가 새로 만든 5문제를 풀 수 있습니다.";
 
     if (!state.authenticated) $("#mainAction").textContent = "회원가입하고 시작하기";
     else if (!hasProfile) $("#mainAction").textContent = "과목·수준 설정하기";
@@ -809,6 +1001,7 @@
     renderSubjectTabs();
     renderPlanHistory();
     renderWrongNotes();
+    renderAiFeatures();
   }
 
   function setAuthMode(mode) {
@@ -840,62 +1033,125 @@
 
   async function generatePlan() {
     if (!hasCompleteProfile()) return;
-    const button = $("#generatePlan");
-    button.disabled = true;
-    try {
-      if (apiConfig.enabled) {
-        const plan = await apiRequest(`/learning/plans?subjectCode=${encodeURIComponent(state.activeSubjectCode)}`, { method: "POST" });
-        state.plans = [...state.plans.filter(item => item.subjectCode !== plan.subjectCode), plan];
-        selectActivePlan(plan.subjectCode);
-      } else {
-        state.planId = 1;
-        state.planGenerated = true;
-        state.planSteps = [];
-        state.tasks = [false, false, false];
-        saveState();
+    await ensureAiEnabled(async () => {
+      const button = $("#generatePlan");
+      button.disabled = true;
+      const code = state.activeSubjectCode || state.subjects[0];
+      setAiLoading(true, `AI가 ${subjectName(code)} 학습 플랜을 만들고 있어요`);
+      try {
+        if (apiConfig.enabled) {
+          const generated = await apiRequest(`/ai/plans?subjectCode=${encodeURIComponent(code)}`, { method: "POST" });
+          const plan = generated.plan;
+          state.plans = [...state.plans.filter(item => item.subjectCode !== plan.subjectCode), plan];
+          state.ai.planRationale = { ...state.ai.planRationale, [plan.subjectCode]: generated.rationale };
+          updateAiQuota(generated.quota);
+          selectActivePlan(plan.subjectCode);
+          if (generated.fallback) toast("AI 연결을 사용할 수 없어 검증된 기본 플랜을 생성했습니다.");
+        } else {
+          state.planId = 1;
+          state.planGenerated = true;
+          state.planSteps = [];
+          state.tasks = [false, false, false];
+          saveState();
+        }
+        state.quizFinished = false;
+        state.quizCorrect = 0;
+        state.quizTotal = 0;
+        updateUI();
+        toast(`${subjectName(code)} AI 학습 플랜을 만들었어요.`);
+        $("#todayPlanTitle").scrollIntoView({ behavior: "smooth", block: "center" });
+      } catch (error) {
+        toast(error.message);
+      } finally {
+        setAiLoading(false);
+        button.disabled = !hasCompleteProfile();
       }
-      state.quizFinished = false;
-      state.quizCorrect = 0;
-      state.quizTotal = 0;
-      updateUI();
-      toast(`${subjectName(state.activeSubjectCode)} 중심의 오늘 학습 플랜을 만들었어요.`);
-      $("#todayPlanTitle").scrollIntoView({ behavior: "smooth", block: "center" });
-    } catch (error) {
-      toast(error.message);
-    } finally {
-      button.disabled = !hasCompleteProfile();
-    }
+    });
   }
 
-  async function startQuiz() {
+  async function generateRecommendation() {
+    if (!hasCompleteProfile()) return;
+    await ensureAiEnabled(async () => {
+      const button = $("#generateRecommendation");
+      const code = state.activeSubjectCode || state.subjects[0];
+      button.disabled = true;
+      setAiLoading(true, `AI가 ${subjectName(code)} 학습 기록을 분석하고 있어요`);
+      try {
+        const generated = apiConfig.enabled
+          ? await apiRequest(`/ai/recommendations?subjectCode=${encodeURIComponent(code)}`, { method: "POST" })
+          : { id: 1, subjectCode: code, subjectName: subjectName(code), title: `${subjectName(code)} 핵심 개념 복습`, content: "최근 학습 기록을 기준으로 핵심 개념을 다시 확인하세요.", priority: 3 };
+        const recommendation = {
+          ...generated,
+          subjectCode: generated.subjectCode || code,
+          subjectName: generated.subjectName || subjectName(code)
+        };
+        state.ai.recommendations = [recommendation, ...(state.ai.recommendations || []).filter(item => item.subjectCode !== code)];
+        updateAiQuota(generated.quota);
+        updateUI();
+        toast(generated.fallback ? "기본 재학습 추천을 준비했습니다." : "AI 재학습 추천을 생성했습니다.");
+      } catch (error) {
+        toast(error.message);
+      } finally {
+        setAiLoading(false);
+        button.disabled = !hasCompleteProfile();
+      }
+    });
+  }
+
+  async function startQuiz(mode = "BANK") {
     const code = state.quizSubjectCode || state.subjects[0];
     if (!code) return;
-    $("#quizButton").disabled = true;
-    try {
-      questions = apiConfig.enabled
-        ? await apiRequest(`/learning/diagnosis/questions?subjectCode=${encodeURIComponent(code)}`)
-        : fallbackQuestions;
-      quizAnswers = [];
-      quizIndex = 0;
-      quizScore = 0;
-      chosenAnswer = null;
-      answerChecked = false;
-      renderQuestion();
-      openModal("quizModal");
-    } catch (error) {
-      toast(error.message);
-    } finally {
-      $("#quizButton").disabled = !hasCompleteProfile() || !state.quizSubjectCode;
-    }
+    const useAi = mode === "AI";
+    const run = async () => {
+      const button = useAi ? $("#aiQuizButton") : $("#quizButton");
+      button.disabled = true;
+      if (useAi) setAiLoading(true, `AI가 ${subjectName(code)} 확인 문제 5개를 만들고 있어요`);
+      try {
+        if (useAi && apiConfig.enabled) {
+          const generated = await apiRequest(`/ai/questions?subjectCode=${encodeURIComponent(code)}&count=5`, { method: "POST" });
+          questions = generated.questions.map(question => ({
+            ...question,
+            id: question.questionNo,
+            options: question.options.map(option => ({ id: option.optionNo, text: option.text }))
+          }));
+          aiQuizRunId = generated.generationRunId;
+          updateAiQuota(generated.quota);
+          if (generated.fallback) toast("AI 응답 대신 검증된 기본 문제를 준비했습니다.");
+        } else {
+          questions = apiConfig.enabled
+            ? await apiRequest(`/learning/diagnosis/questions?subjectCode=${encodeURIComponent(code)}`)
+            : fallbackQuestions;
+          aiQuizRunId = useAi ? 1 : null;
+        }
+        quizMode = useAi ? "AI" : "BANK";
+        quizAnswers = [];
+        quizIndex = 0;
+        quizScore = 0;
+        chosenAnswer = null;
+        answerChecked = false;
+        renderQuestion();
+        openModal("quizModal");
+      } catch (error) {
+        toast(error.message);
+      } finally {
+        if (useAi) setAiLoading(false);
+        button.disabled = !hasCompleteProfile() || !state.quizSubjectCode;
+      }
+    };
+    if (useAi) await ensureAiEnabled(run);
+    else await run();
   }
 
   function renderQuestion() {
     const question = questions[quizIndex];
+    $("#quizTitle").textContent = quizMode === "AI" ? "AI 확인 문제" : "오늘의 확인 문제";
     $("#questionCounter").textContent = `${quizIndex + 1} / ${questions.length}`;
     $("#quizProgressBar").style.width = `${((quizIndex + 1) / questions.length) * 100}%`;
     $("#questionSubject").textContent = `${question.subjectName} · ${question.difficulty}`;
     $("#questionText").textContent = question.text;
-      $("#quizSubjectText").textContent = `${subjectName(state.quizSubjectCode || state.subjects[0])} 핵심 내용을 확인합니다.`;
+    $("#quizSubjectText").textContent = quizMode === "AI"
+      ? `${subjectName(state.quizSubjectCode || state.subjects[0])} 맞춤 문제 · 결과는 연습용입니다.`
+      : `${subjectName(state.quizSubjectCode || state.subjects[0])} 핵심 내용을 확인합니다.`;
     $("#answerList").innerHTML = question.options.map((option, index) => `
       <button class="answer" type="button" data-answer="${option.id}">
         <span class="answer-letter">${String.fromCharCode(65 + index)}</span><span>${escapeHtml(option.text)}</span>
@@ -989,6 +1245,7 @@
         state.userEmail = email.toLowerCase();
       }
       state.authenticated = true;
+      saveSessionHint();
       if (apiConfig.enabled) await loadLearningState();
       else saveState();
       await detectAdmin();
@@ -1042,7 +1299,54 @@
   });
 
   $("#generatePlan").addEventListener("click", generatePlan);
-  $("#quizButton").addEventListener("click", startQuiz);
+  $("#generateRecommendation").addEventListener("click", generateRecommendation);
+  $("#aiSettingsButton").addEventListener("click", () => openAiSettings());
+  $("#aiConsentForm").addEventListener("submit", async event => {
+    event.preventDefault();
+    const consent = $("#aiConsentCheck").checked;
+    const availableMinutes = Number($("#aiAvailableMinutes").value);
+    if (!consent) {
+      $("#aiConsentMessage").textContent = "외부 AI 처리 안내 동의가 필요합니다.";
+      return;
+    }
+    if (!Number.isInteger(availableMinutes) || availableMinutes < 5 || availableMinutes > 240) {
+      $("#aiConsentMessage").textContent = "희망 학습 시간은 5분에서 240분 사이로 입력해 주세요.";
+      return;
+    }
+    const submit = $("#aiConsentSubmit");
+    submit.disabled = true;
+    try {
+      const preference = apiConfig.enabled
+        ? await apiRequest("/ai/preferences", {
+            method: "PUT",
+            body: JSON.stringify({
+              enabled: true,
+              consent: true,
+              explanationStyle: $("#aiExplanationStyle").value,
+              availableMinutes
+            })
+          })
+        : {
+            enabled: true,
+            consentAt: new Date().toISOString(),
+            explanationStyle: $("#aiExplanationStyle").value,
+            availableMinutes
+          };
+      state.ai.preferences = preference;
+      const action = pendingAiAction;
+      pendingAiAction = null;
+      closeModal("aiConsentModal");
+      updateUI();
+      toast("AI 학습 기능을 사용할 수 있습니다.");
+      if (action) await action();
+    } catch (error) {
+      $("#aiConsentMessage").textContent = error.message;
+    } finally {
+      submit.disabled = false;
+    }
+  });
+  $("#quizButton").addEventListener("click", () => startQuiz("BANK"));
+  $("#aiQuizButton").addEventListener("click", () => startQuiz("AI"));
   $("#editProfile").addEventListener("click", openProfile);
   $("#profileAction").addEventListener("click", openProfile);
   $("#loginButton").addEventListener("click", () => { setAuthMode("login"); openModal("authModal"); });
@@ -1397,17 +1701,25 @@
       $("#nextQuestion").disabled = true;
       try {
         const checked = apiConfig.enabled
-          ? await apiRequest("/learning/diagnosis/check", {
-              method: "POST", body: JSON.stringify({ questionId: question.id, selectedOptionId: chosenAnswer })
+          ? await apiRequest(quizMode === "AI" ? `/ai/questions/${aiQuizRunId}/check` : "/learning/diagnosis/check", {
+              method: "POST",
+              body: JSON.stringify(quizMode === "AI"
+                ? { questionNo: question.questionNo, selectedOptionNo: chosenAnswer }
+                : { questionId: question.id, selectedOptionId: chosenAnswer })
             })
-          : { correct: chosenAnswer === question.correctOptionId, correctOptionId: question.correctOptionId, explanation: question.explanation };
+          : {
+              correct: chosenAnswer === question.correctOptionId,
+              correctOptionId: question.correctOptionId,
+              correctOptionNo: question.correctOptionId,
+              explanation: question.explanation
+            };
         answerChecked = true;
         if (checked.correct) quizScore += 1;
         quizAnswers.push({ questionId: question.id, selectedOptionId: chosenAnswer });
         $$('[data-answer]').forEach(button => {
           const optionId = Number(button.dataset.answer);
           button.classList.remove("selected");
-          if (optionId === checked.correctOptionId) button.classList.add("correct");
+          if (optionId === (quizMode === "AI" ? checked.correctOptionNo : checked.correctOptionId)) button.classList.add("correct");
           else if (optionId === chosenAnswer) button.classList.add("wrong");
         });
         $("#explanation").textContent = `${checked.correct ? "정답입니다. " : "아쉽지만 오답입니다. "}${checked.explanation}`;
@@ -1429,7 +1741,10 @@
 
     $("#nextQuestion").disabled = true;
     try {
-      if (apiConfig.enabled) {
+      if (quizMode === "AI") {
+        state.quizCorrect = quizScore;
+        state.quizTotal = questions.length;
+      } else if (apiConfig.enabled) {
         const result = await apiRequest("/learning/diagnosis/attempts", {
           method: "POST", body: JSON.stringify({ subjectCode: state.quizSubjectCode || state.subjects[0], answers: quizAnswers })
         });
@@ -1446,7 +1761,10 @@
       }
       closeModal("quizModal");
       updateUI();
-      toast(`정답률 ${Math.round((state.quizCorrect / Math.max(state.quizTotal, 1)) * 100)}%가 대시보드에 반영됐어요.`);
+      const rate = Math.round((state.quizCorrect / Math.max(state.quizTotal, 1)) * 100);
+      toast(quizMode === "AI"
+        ? `AI 연습 문제 정답률은 ${rate}%입니다. 문제은행 통계에는 반영되지 않습니다.`
+        : `정답률 ${rate}%가 대시보드에 반영됐어요.`);
       $("#dashboard").scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (error) {
       toast(error.message);
@@ -1556,6 +1874,37 @@
   });
 
   document.addEventListener("click", async event => {
+    const aiFeedbackAction = event.target.closest("[data-ai-feedback]");
+    if (aiFeedbackAction && state.authenticated) {
+      const questionId = Number(aiFeedbackAction.dataset.aiFeedback);
+      await ensureAiEnabled(async () => {
+        aiFeedbackAction.disabled = true;
+        setAiLoading(true, "AI가 오답을 분석하고 맞춤 해설을 만들고 있어요");
+        try {
+          const generated = apiConfig.enabled
+            ? await apiRequest(`/ai/wrong-notes/${questionId}/feedback`, { method: "POST" })
+            : {
+                id: 1,
+                generationRunId: 1,
+                feedback: "선택한 답과 정답의 핵심 차이를 다시 확인해 보세요.",
+                recommendedActions: ["핵심 용어를 한 문장으로 정리하기", "같은 문제를 다시 풀기"]
+              };
+          state.ai.feedbackByQuestion = {
+            ...state.ai.feedbackByQuestion,
+            [String(questionId)]: { ...generated, questionId }
+          };
+          updateAiQuota(generated.quota);
+          updateUI();
+          toast(generated.fallback ? "기본 오답 해설을 준비했습니다." : "AI 맞춤 오답 해설을 생성했습니다.");
+        } catch (error) {
+          toast(error.message);
+        } finally {
+          setAiLoading(false);
+          aiFeedbackAction.disabled = false;
+        }
+      });
+      return;
+    }
     const action = event.target.closest("[data-relearn-question]");
     if (!action || !state.authenticated) return;
     const questionId = Number(action.dataset.relearnQuestion);
@@ -1588,6 +1937,7 @@
   });
 
   renderSubjectChoices();
+  applySessionHint();
   updateUI();
   restoreSession();
 })();

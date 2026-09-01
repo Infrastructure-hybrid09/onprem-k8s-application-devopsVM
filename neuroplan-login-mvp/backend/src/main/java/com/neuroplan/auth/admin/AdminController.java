@@ -176,6 +176,13 @@ public class AdminController {
         }
 
         sessionRepository.revokeAllForUser(target.id(), Instant.now());
+        jdbcTemplate.update("DELETE FROM wrong_note_ai_feedback WHERE user_id = ?", target.id());
+        jdbcTemplate.update("DELETE FROM next_plan_queue WHERE user_id = ?", target.id());
+        jdbcTemplate.update("DELETE FROM ai_token_ledger WHERE user_id = ?", target.id());
+        jdbcTemplate.update("""
+                DELETE FROM daily_plan_ai_meta
+                 WHERE plan_id IN (SELECT id FROM daily_plans WHERE user_id = ?)
+                """, target.id());
         int wrongNotes = jdbcTemplate.update("DELETE FROM wrong_notes WHERE user_id = ?", target.id());
         int diagnosisAnswers = jdbcTemplate.update("""
                 DELETE FROM diagnosis_answers
@@ -187,6 +194,9 @@ public class AdminController {
                  WHERE plan_id IN (SELECT id FROM daily_plans WHERE user_id = ?)
                 """, target.id());
         int dailyPlans = jdbcTemplate.update("DELETE FROM daily_plans WHERE user_id = ?", target.id());
+        jdbcTemplate.update("DELETE FROM ai_generation_runs WHERE user_id = ?", target.id());
+        jdbcTemplate.update("DELETE FROM user_ai_preferences WHERE user_id = ?", target.id());
+        jdbcTemplate.update("DELETE FROM ai_token_quotas WHERE user_id = ?", target.id());
         int dailyStats = jdbcTemplate.update("DELETE FROM study_daily_stats WHERE user_id = ?", target.id());
         int userSubjects = jdbcTemplate.update("DELETE FROM user_subjects WHERE user_id = ?", target.id());
         int sessions = jdbcTemplate.update("DELETE FROM jwt_sessions WHERE user_id = ?", target.id());

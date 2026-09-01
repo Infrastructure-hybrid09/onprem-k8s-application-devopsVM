@@ -1,6 +1,15 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+
 namespace: application
+
 resources:
   - ../base
   - 20-httproute.yaml
+
+images:
+  - name: 192.168.34.21:5000/neuroplan/frontend
+    newTag: "0.8.0"
+
+  - name: 192.168.34.21:5000/neuroplan/backend
+    newTag: "0.8.0"

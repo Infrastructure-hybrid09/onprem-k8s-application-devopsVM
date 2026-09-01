@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-VERSION="${VERSION:-0.6.0}"
+VERSION="${VERSION:-0.8.0}"
 ARCHIVE="${1:-$HOME/releases/neuroplan-login-mvp-${VERSION}-bundle.zip}"
 PROJECT_ROOT="${PROJECT_ROOT:-$HOME/onprem-k8s}"
 NAMESPACE="${NAMESPACE:-application}"
@@ -43,26 +43,34 @@ unzip -q "$ARCHIVE" -d "$WORK_DIR"
 chmod -R u+rwX "$WORK_DIR"
 
 MVP_SOURCE="$WORK_DIR/neuroplan-login-mvp"
-UI_SOURCE="$WORK_DIR/neuroplan-ui-mockup"
 [[ -f "$MVP_SOURCE/backend/pom.xml" ]] || fail "backend/pom.xml missing from archive"
+[[ -f "$MVP_SOURCE/backend/src/main/java/com/neuroplan/auth/ai/AiFeatureController.java" ]] || \
+  fail "AI feature controller missing from archive"
 [[ -f "$MVP_SOURCE/scripts/01-build-push.sh" ]] || fail "build script missing from archive"
-[[ -f "$UI_SOURCE/mvp-main.html" ]] || fail "UI entry file missing from archive"
+[[ -f "$MVP_SOURCE/frontend/index.html" ]] || fail "frontend/index.html missing from archive"
+[[ -f "$MVP_SOURCE/frontend/mvp-app.js" ]] || fail "frontend/mvp-app.js missing from archive"
 
-grep -Fq '<version>0.6.0</version>' "$MVP_SOURCE/backend/pom.xml" || \
-  fail "backend version is not 0.6.0"
-grep -Fq 'VERSION="${VERSION:-0.6.0}"' "$MVP_SOURCE/scripts/01-build-push.sh" || \
-  fail "build script version is not 0.6.0"
-grep -Fq '192.168.34.21:5000/neuroplan/frontend:0.6.0' \
-  "$MVP_SOURCE/k8s/base/10-workloads.yaml" || fail "frontend image tag is not 0.6.0"
-grep -Fq '192.168.34.21:5000/neuroplan/backend:0.6.0' \
-  "$MVP_SOURCE/k8s/base/10-workloads.yaml" || fail "backend image tag is not 0.6.0"
-echo "[PASS] NeuroPlan release 0.6.0 validated"
+grep -Fq '<version>0.8.0</version>' "$MVP_SOURCE/backend/pom.xml" || \
+  fail "backend version is not 0.8.0"
+grep -Fq 'VERSION="${VERSION:-0.8.0}"' "$MVP_SOURCE/scripts/01-build-push.sh" || \
+  fail "build script version is not 0.8.0"
+grep -Fq '192.168.34.21:5000/neuroplan/frontend:0.8.0' \
+  "$MVP_SOURCE/k8s/base/10-workloads.yaml" || fail "frontend image tag is not 0.8.0"
+grep -Fq '192.168.34.21:5000/neuroplan/backend:0.8.0' \
+  "$MVP_SOURCE/k8s/base/10-workloads.yaml" || fail "backend image tag is not 0.8.0"
+grep -Fq 'name: neuroplan-llm-secrets' "$MVP_SOURCE/k8s/base/10-workloads.yaml" || \
+  fail "LLM secret reference is missing"
+grep -Fq '/api/ai/plans' "$MVP_SOURCE/scripts/03-smoke-test.sh" || \
+  fail "AI smoke test is missing"
+grep -Fq '/api/ai/questions' "$MVP_SOURCE/scripts/03-smoke-test.sh" || \
+  fail "AI question smoke test is missing"
+echo "[PASS] NeuroPlan release 0.8.0 validated"
 
 echo "===== 2. Create a recoverable source backup ====="
 mkdir -p "$BACKUP_DIR" "$STAGE_DIR"
-cp -a "$MVP_SOURCE" "$UI_SOURCE" "$STAGE_DIR/"
+cp -a "$MVP_SOURCE" "$STAGE_DIR/"
 
-for directory in neuroplan-login-mvp neuroplan-ui-mockup; do
+for directory in neuroplan-login-mvp; do
   if [[ -e "$PROJECT_ROOT/$directory" ]]; then
     mv -- "$PROJECT_ROOT/$directory" "$BACKUP_DIR/"
   fi
@@ -82,6 +90,8 @@ export KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config}"
 
 kubectl -n "$NAMESPACE" get secret neuroplan-auth-secrets >/dev/null 2>&1 || \
   fail "Secret $NAMESPACE/neuroplan-auth-secrets is missing. Run scripts/00-create-db-secret.sh first."
+kubectl -n "$NAMESPACE" get secret neuroplan-llm-secrets >/dev/null 2>&1 || \
+  fail "Secret $NAMESPACE/neuroplan-llm-secrets is missing. Create LLM_ACCOUNT_ID and LLM_API_KEY first."
 
 echo "===== 4. Build and push rootless images ====="
 cd "$PROJECT_ROOT/neuroplan-login-mvp"

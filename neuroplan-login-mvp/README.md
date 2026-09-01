@@ -1,6 +1,6 @@
-# NeuroPlan 학습 MVP 0.7.0
+# NeuroPlan 학습 MVP 0.8.0
 
-> 릴리스 상태: 사설 Registry 등록, On-Prem Kubernetes 배포 및 전체 Smoke Test 완료 (2026-08-31)
+> 릴리스 상태: 0.8.0 릴리스 후보 — 로컬 정적·반응형 검증 후 On-Prem 통합 테스트 예정 (2026-09-01)
 
 회원가입부터 과목·수준 설정, 오늘 플랜, 3단계 완료, 5문제 진단, 오답·일별 통계까지 MariaDB에 저장하는 최소 학습 서비스입니다. On-Prem Kubernetes에서 먼저 실행한 뒤 ROSA/OpenShift로 옮길 수 있도록 Workload와 진입 리소스를 분리했습니다.
 
@@ -12,8 +12,10 @@ Client
        └─ NGINX Gateway Fabric
             ├─ /       → Frontend NGINX (2 replicas)
             └─ /api/*  → Spring Boot API (2 replicas)
-                              └─ MaxScale 192.168.44.21:4006
-                                   └─ MariaDB infraready 인증·학습 테이블 12개
+                              ├─ MaxScale 192.168.44.21:4006
+                              │    └─ MariaDB infraready 인증·학습·AI 테이블 19개
+                              └─ Cloudflare Workers AI
+                                   └─ @cf/qwen/qwen3.8-27b
 ```
 
 - Frontend: 정적 HTML/JavaScript, API와 동일 Origin
@@ -34,7 +36,12 @@ Client
 | 오늘의 플랜·3단계 완료 | `daily_plans`, `plan_steps` |
 | 5문제 진단·제출 답안 | `diagnosis_questions`, `question_options`, `diagnosis_attempts`, `diagnosis_answers` |
 | 오답 누적·재학습 완료·상세 대시보드 | `wrong_notes`, `study_daily_stats`, `diagnosis_attempts` 집계 |
-| 관리자 요약·회원 상태·영구 삭제 | 사용자와 연결된 위 12개 테이블 전체 |
+| 관리자 요약·회원 상태·영구 삭제 | 사용자와 연결된 인증·학습·AI 테이블 전체 |
+| AI 학습 플랜 생성 | `ai_generation_runs`, `daily_plan_ai_meta`, `daily_plans`, `plan_steps` |
+| AI 확인 문제 생성·서버 채점 | `ai_generation_runs`, `ai_token_quotas`, `ai_token_ledger` |
+| 오답 AI 해설 | `ai_generation_runs`, `wrong_note_ai_feedback`, `wrong_notes` |
+| 개인 맞춤 재학습 추천 | `ai_generation_runs`, `next_plan_queue`, `user_ai_preferences` |
+| AI 동의·설명 스타일·잔여 토큰 | `user_ai_preferences`, `ai_token_quotas`, `ai_token_ledger` |
 
 ### 인증 저장 원칙
 
@@ -45,6 +52,34 @@ Client
 - `created_at`, `updated_at`
 
 `LOCKED` 또는 `WITHDRAWN` 계정은 로그인과 기존 세션 사용이 모두 거부됩니다. 로그아웃 또는 Refresh Token 회전 시 기존 세션의 `revoked_at`이 기록됩니다.
+
+## 0.8.0 변경 사항
+
+- **AI 학습 플랜:** 선택 과목·수준·희망 학습 시간을 Cloudflare Workers AI에 전달하고 검증된 3단계 JSON을 오늘 플랜으로 저장합니다.
+- **오답 AI 해설:** 오답 문제의 선택 답안·정답·기존 해설을 바탕으로 맞춤 피드백과 다음 행동을 생성해 별도 이력으로 보관합니다.
+- **개인 맞춤 재학습 추천:** 과목별 오답과 학습 통계를 바탕으로 다음 학습 항목을 생성해 대기열에 저장합니다.
+- **잔여 토큰:** 사용자별 일일 한도, 사용량, 잔여량을 화면에 표시하고 외부 호출 성공 시 원장에 토큰 사용량을 기록합니다.
+- **AI 문제 출제:** 선택한 과목·수준에 맞춘 객관식 5문제를 생성하고 정답을 노출하지 않은 채 생성 기록을 기준으로 서버에서 채점합니다.
+- **상단 토큰 게이지:** 오른쪽 위에 `잔여 / 일일 한도` 숫자와 잔여 비율 막대를 함께 표시합니다.
+- **AI 작업 표시:** 플랜·오답 해설·재학습 추천 생성 중 중앙 진행 화면과 예상 대기 시간을 표시하고 중복 요청을 차단합니다.
+- **플랜 가독성:** 생성 내용은 그대로 유지하면서 `1)`, `2)`, `3)` 실행 항목을 번호별 목록으로 나눠 표시합니다.
+- **새로고침 세션 복원:** HttpOnly Refresh Token으로 인증을 복원하며, 학습 데이터 일부 조회 실패가 전체 로그아웃으로 이어지지 않도록 분리했습니다.
+- **AI 개인정보 동의:** 최초 사용 전에 외부 AI 처리 동의, 설명 스타일, 희망 학습 시간을 저장하며 동의하지 않은 사용자는 AI API를 호출할 수 없습니다.
+- **안전한 외부 호출:** API Key는 Kubernetes Secret에서만 주입하고, UTF-8 JSON 검증·시간 제한·오류 분류·정적 플랜 폴백을 적용합니다.
+- **프론트 정리:** 별도 `neuroplan-ui-mockup` 디렉터리를 제거하고 실제 HTML·JavaScript·아이콘을 `frontend/`에 통합했습니다.
+- **배포 검증:** Smoke Test에서 AI 동의, 실제 플랜·문제 생성, 서버 채점, 오답 해설, 재학습 추천, 토큰 차감을 연속 검증합니다.
+
+### 0.7.0 대비 0.8.0 비교
+
+| 구분 | 0.7.0 | 0.8.0 |
+|---|---|---|
+| 플랜 생성 | 애플리케이션의 고정 템플릿 | Cloudflare AI 3단계 플랜 + 검증 실패 시 정적 폴백 |
+| 오답 노트 | 저장된 정답·해설 표시 | 사용자 답안 기반 AI 해설과 추천 행동 추가 |
+| 재학습 | 재학습 완료 상태 기록 | 오답·통계 기반 과목별 맞춤 재학습 추천 추가 |
+| 문제 출제 | DB 문제은행 5문제 | DB 문제은행 + 과목·수준별 AI 객관식 5문제와 서버 채점 |
+| 사용량 | AI 사용량 없음 | 일일 토큰 한도·사용량·잔여량과 호출 원장 제공 |
+| 개인정보 | AI 외부 전송 없음 | 최초 사용 시 별도 동의와 개인화 설정 저장 |
+| 운영 Secret | DB/JWT Secret | DB/JWT Secret + Cloudflare Account ID/API Token |
 
 ## 0.7.0 변경 사항
 
@@ -83,8 +118,8 @@ Client
 
 ### 별도 인프라·DB 확장이 필요한 기능
 
-다음 기능은 현재 12개 테이블만으로는 여러 Backend replica에서 안전하게 구현할 수 없어
-0.7.0 자동 배포 대상에서 제외합니다.
+다음 기능은 현재 테이블 구조만으로는 여러 Backend replica에서 안전하게 구현할 수 없어
+0.8.0 범위에서 제외합니다.
 
 - 이메일 기반 비밀번호 분실 재설정 및 이메일 인증: SMTP와 만료 토큰 저장소 필요
 - 로그인 실패 횟수 제한: 공유 rate-limit 저장소 또는 로그인 시도 테이블 필요
@@ -99,7 +134,7 @@ Client
 ```text
 neuroplan-login-mvp/
 ├── backend/             Spring Boot API와 Rootless Dockerfile
-├── frontend/            NGINX 설정과 Rootless Dockerfile
+├── frontend/            실제 HTML·JavaScript·아이콘, NGINX 설정과 Rootless Dockerfile
 ├── db/                  스키마 점검 SQL과 DDL 없는 기준 콘텐츠 시드
 ├── k8s/
 │   ├── base/            환경 공통 Deployment, Service, ConfigMap, PDB
@@ -145,6 +180,17 @@ mariadb --no-defaults --disable-ssl \
 인덱스 출력에서 기존 UNIQUE 키가 `(user_id, plan_date)`로만 되어 있다면 DB 담당자가
 제약 조건을 변경한 뒤 배포해야 합니다. 애플리케이션은 해당 DDL을 자동 실행하지 않습니다.
 
+0.8.0 AI 기능은 다음 7개 테이블과 `ai_generation_runs.provider_usage_units`,
+`ai_generation_runs.provider_usage_unit` 컬럼이 준비되어 있어야 합니다.
+
+```text
+ai_generation_runs, user_ai_preferences, daily_plan_ai_meta,
+wrong_note_ai_feedback, next_plan_queue, ai_token_quotas, ai_token_ledger
+```
+
+애플리케이션 계정 `ir_app`에는 위 테이블의 `SELECT`, `INSERT`, `UPDATE`, `DELETE`만
+필요하며 DDL 권한은 필요하지 않습니다.
+
 ```bash
 ./scripts/seed-learning-content.sh
 ```
@@ -157,12 +203,11 @@ DB/네트워크 담당 확인사항:
 
 ## 2. DevOps VM 파일 배치
 
-두 디렉터리를 같은 상위 경로에 둡니다.
+서비스에 필요한 소스는 하나의 디렉터리에 함께 둡니다.
 
 ```text
 ~/onprem-k8s/
-├── neuroplan-login-mvp/
-└── neuroplan-ui-mockup/
+└── neuroplan-login-mvp/
 ```
 
 ```bash
@@ -181,8 +226,8 @@ cd ~/onprem-k8s
 이미지:
 
 ```text
-192.168.34.21:5000/neuroplan/frontend:0.7.0
-192.168.34.21:5000/neuroplan/backend:0.7.0
+192.168.34.21:5000/neuroplan/frontend:0.8.0
+192.168.34.21:5000/neuroplan/backend:0.8.0
 ```
 
 이미지는 기본 UID 1001을 선언하지만 Pod YAML에는 UID/GID를 고정하지 않습니다. Kubernetes에서는 비-root로 실행되고 ROSA에서는 SCC가 할당한 임의 UID로 실행됩니다.
@@ -206,6 +251,23 @@ application/neuroplan-auth-secrets
 ```
 
 재실행하면 JWT 키도 바뀌어 기존 로그인이 모두 무효화됩니다. 일반 배포 때는 재실행하지 않고 키 교체 작업으로만 사용합니다.
+
+Cloudflare Account ID와 API Token은 별도의 Secret으로 생성합니다. 실제 값은 명령 기록이나 YAML에 남기지 말고 프롬프트에서 입력합니다.
+
+```bash
+read -r -p "Cloudflare Account ID: " LLM_ACCOUNT_ID
+read -r -s -p "Cloudflare API Token: " LLM_API_KEY
+echo
+
+kubectl -n application create secret generic neuroplan-llm-secrets \
+  --from-literal=LLM_ACCOUNT_ID="$LLM_ACCOUNT_ID" \
+  --from-literal=LLM_API_KEY="$LLM_API_KEY" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+unset LLM_ACCOUNT_ID LLM_API_KEY
+```
+
+`neuroplan-llm-secrets`에는 `LLM_ACCOUNT_ID`, `LLM_API_KEY` 두 키가 있어야 합니다. Secret 값은 로그, Git, ConfigMap, 이미지에 저장하지 않습니다.
 
 관리자 페이지는 `k8s/base/10-workloads.yaml`의 `ADMIN_EMAILS` 허용 목록으로 제한합니다. 기본 테스트 값은 `admin@nplan.local`이며, 해당 이메일로 회원가입/로그인하면 오른쪽 위 사용자 메뉴에 **관리자 페이지**가 표시됩니다. 팀 승인 이메일이 다르면 배포 전에 쉼표 구분 목록으로 교체합니다.
 
@@ -358,8 +420,8 @@ NAMESPACE=neuroplan KUBE_CLI=oc ./scripts/00-create-db-secret.sh
 
 cd k8s/rosa
 kustomize edit set image \
-  192.168.34.21:5000/neuroplan/frontend:0.7.0=quay.io/ORG/neuroplan-frontend:0.7.0 \
-  192.168.34.21:5000/neuroplan/backend:0.7.0=quay.io/ORG/neuroplan-backend:0.7.0
+  192.168.34.21:5000/neuroplan/frontend:0.8.0=quay.io/ORG/neuroplan-frontend:0.8.0 \
+  192.168.34.21:5000/neuroplan/backend:0.8.0=quay.io/ORG/neuroplan-backend:0.8.0
 oc apply -k .
 ```
 

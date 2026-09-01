@@ -187,6 +187,10 @@
     .button.block { width: 100%; }
     .button.small { min-height: 36px; padding: 0 12px; border-radius: 11px; font-size: 12px; }
     .button:disabled { opacity: .45; cursor: not-allowed; transform: none; box-shadow: none; }
+    .ai-token-chip { min-width: 146px; min-height: 42px; padding: 6px 11px; border: 1px solid #c8ddd0; border-radius: 14px; display: inline-grid; grid-template-columns: auto minmax(78px, 1fr); align-items: center; gap: 4px 8px; color: #39705a; background: #eff8f2; font-size: 10px; font-weight: 800; white-space: nowrap; }
+    .ai-token-chip strong { color: var(--navy); font-size: 11px; text-align: right; }
+    .ai-token-chip-track { grid-column: 1 / -1; height: 4px; overflow: hidden; border-radius: 999px; background: #d8e8dd; }
+    .ai-token-chip-track span { width: 0; height: 100%; display: block; border-radius: inherit; background: linear-gradient(90deg, #5f9f80, #88b59c); transition: width .25s ease; }
 
     .dashboard {
       width: min(1180px, calc(100% - 40px));
@@ -345,6 +349,11 @@
     .wrong-note-item [data-relearn-question] { margin-top: 4px; }
     .wrong-note-status { padding: 5px 8px; border-radius: 999px; color: #39705a; background: var(--teal-soft); font-size: 10px; font-weight: 900; white-space: nowrap; }
     .wrong-note-status.pending { color: #9e5148; background: var(--danger-soft); }
+    .wrong-note-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .ai-feedback { margin-top: 13px; padding: 14px; border: 1px solid #bfd9c9; border-radius: 14px; background: #f0f8f3; }
+    .ai-feedback strong { display: block; margin-bottom: 6px; color: #285844; font-size: 12px; }
+    .ai-feedback p { margin: 0; color: #244438; font-size: 12px; line-height: 1.65; }
+    .ai-feedback ul { margin: 9px 0 0; padding-left: 19px; color: #315849; font-size: 11px; line-height: 1.6; }
     .filter-row { margin-bottom: 15px; display: flex; flex-wrap: wrap; gap: 9px; }
     .filter-row select, .filter-row input { min-height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; color: var(--navy); background: #fff; }
     .plan-subject-tabs { margin-bottom: 15px; display: flex; flex-wrap: wrap; gap: 8px; }
@@ -377,9 +386,9 @@
     .timeline-item {
       display: grid;
       grid-template-columns: 42px minmax(0, 1fr) auto;
-      align-items: center;
+      align-items: start;
       gap: 14px;
-      padding: 15px;
+      padding: 17px 15px;
       border: 1px solid var(--line);
       border-radius: 17px;
       background: #fbfefc;
@@ -397,11 +406,47 @@
     }
     .timeline-item:nth-child(2) .timeline-order { color: #4f7d67; background: var(--teal-soft); }
     .timeline-item:nth-child(3) .timeline-order { color: #9b6710; background: var(--yellow-soft); }
-    .timeline-copy strong { display: block; font-size: 14px; }
-    .timeline-copy span { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; }
+    .timeline-copy { min-width: 0; padding-top: 2px; }
+    .timeline-copy strong { display: block; color: var(--navy); font-size: 14px; line-height: 1.45; }
+    .plan-step-content { margin-top: 8px; color: #3f5f52; font-size: 12px; line-height: 1.7; }
+    .plan-step-intro, .plan-step-summary { margin: 0; white-space: pre-line; }
+    .plan-step-actions {
+      margin: 9px 0 0;
+      padding: 0;
+      display: grid;
+      gap: 7px;
+      list-style: none;
+      counter-reset: plan-action;
+    }
+    .plan-step-actions li {
+      position: relative;
+      min-height: 29px;
+      padding: 5px 8px 5px 34px;
+      border-radius: 9px;
+      color: #294b3d;
+      background: #f0f7f2;
+      overflow-wrap: anywhere;
+      counter-increment: plan-action;
+    }
+    .plan-step-actions li::before {
+      content: counter(plan-action);
+      position: absolute;
+      top: 5px;
+      left: 7px;
+      width: 20px;
+      height: 20px;
+      border-radius: 7px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      background: #6fa98c;
+      font-size: 10px;
+      font-weight: 900;
+    }
     .check-button {
       width: 34px;
       height: 34px;
+      margin-top: 4px;
       border: 1px solid #c9dad0;
       border-radius: 11px;
       display: grid;
@@ -426,6 +471,7 @@
     }
     .quiz-callout strong { display: block; font-size: 14px; }
     .quiz-callout p { margin: 5px 0 0; color: #7e6b36; font-size: 11px; }
+    .quiz-launch-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 
     .profile-summary {
       padding: 18px;
@@ -438,6 +484,22 @@
     .subject-tag { padding: 6px 9px; border-radius: 9px; color: var(--blue-dark); background: #fff; font-size: 11px; font-weight: 800; }
     .progress-list { margin: 20px 0 22px; display: grid; gap: 17px; }
     .profile-plan-button { position: static; flex: 0 0 auto; margin-top: 0; }
+    .ai-quota-card { margin-top: 14px; padding: 14px; border: 1px solid #c8ddd0; border-radius: 15px; background: linear-gradient(135deg, #eff8f2, #f9fcfa); }
+    .ai-quota-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .ai-quota-top span { color: var(--muted); font-size: 10px; font-weight: 800; }
+    .ai-quota-top strong { color: var(--navy); font-size: 13px; }
+    .ai-quota-track { height: 7px; margin-top: 9px; overflow: hidden; border-radius: 999px; background: #dfece3; }
+    .ai-quota-track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #5c9e7e, #8bbda2); }
+    .ai-quota-foot { margin-top: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 10px; }
+    .ai-link-button { padding: 0; border: 0; color: #39705a; background: transparent; cursor: pointer; font: inherit; font-weight: 900; }
+    .ai-recommendation-card { margin-top: 16px; }
+    .ai-recommendation-result { padding: 17px; border: 1px solid #c8ddd0; border-radius: 16px; background: #f4faf6; }
+    .ai-recommendation-result strong { display: block; color: var(--navy); font-size: 14px; }
+    .ai-recommendation-result p { margin: 8px 0 0; color: #315044; font-size: 12px; line-height: 1.7; }
+    .ai-recommendation-meta { margin-top: 9px; color: var(--muted); font-size: 10px; }
+    .ai-consent-note { margin: 0 0 16px; padding: 14px; border-radius: 14px; color: #315044; background: var(--sky-soft); font-size: 12px; line-height: 1.65; }
+    .check-field { display: flex; align-items: flex-start; gap: 9px; margin: 4px 0 17px; color: #315044; font-size: 12px; line-height: 1.5; }
+    .check-field input { margin-top: 2px; }
     .subject-progress-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; font-size: 12px; }
     .subject-progress-top strong { font-size: 12px; }
     .subject-progress-top span { color: var(--muted); }
@@ -635,6 +697,40 @@
     .toast.show { transform: none; opacity: 1; }
     .toast-icon { color: var(--yellow); font-size: 16px; }
 
+    .ai-loading-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 90;
+      padding: 24px;
+      display: grid;
+      place-items: center;
+      background: rgba(31,57,48,.48);
+      backdrop-filter: blur(6px);
+    }
+    .ai-loading-panel {
+      width: min(390px, 100%);
+      padding: 28px 25px;
+      border: 1px solid rgba(255,255,255,.62);
+      border-radius: 24px;
+      color: var(--navy);
+      background: rgba(255,253,248,.97);
+      box-shadow: 0 26px 70px rgba(31,57,48,.28);
+      text-align: center;
+    }
+    .ai-loading-spinner {
+      width: 44px;
+      height: 44px;
+      margin: 0 auto 17px;
+      border: 5px solid #dbece1;
+      border-top-color: var(--teal);
+      border-radius: 50%;
+      display: block;
+      animation: ai-loading-spin .8s linear infinite;
+    }
+    .ai-loading-panel strong { display: block; font-size: 17px; line-height: 1.45; }
+    .ai-loading-panel span:last-child { display: block; margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+    @keyframes ai-loading-spin { to { transform: rotate(360deg); } }
+
     .admin-head {
       margin-bottom: 24px;
       display: flex;
@@ -676,7 +772,10 @@
     }
     @media (max-width: 680px) {
       .topbar-inner, .dashboard { width: min(100% - 24px, 1180px); }
-      .topbar-inner { min-height: 64px; }
+      .topbar-inner { min-height: 64px; gap: 8px; }
+      .brand { gap: 6px; font-size: 16px; }
+      .brand-mark { width: 36px; height: 36px; border-radius: 11px; }
+      .top-actions { gap: 4px; }
       .category-nav { top: 64px; }
       .top-actions .button.secondary { display: none; }
       .hero { padding: 26px 21px; border-radius: 24px; }
@@ -688,6 +787,13 @@
       .timeline-item { grid-template-columns: 38px minmax(0, 1fr) auto; gap: 10px; padding: 12px; }
       .timeline-order { width: 38px; height: 38px; }
       .quiz-callout { align-items: flex-start; flex-direction: column; }
+      .quiz-launch-actions { width: 100%; justify-content: stretch; }
+      .quiz-launch-actions .button { flex: 1 1 140px; }
+      .ai-token-chip { min-width: 96px; padding: 5px 8px; grid-template-columns: minmax(0, 1fr); }
+      .ai-token-chip > span:first-child { display: none; }
+      .ai-token-chip strong { overflow: hidden; font-size: 10px; text-align: center; text-overflow: ellipsis; }
+      .user-chip { padding: 0 8px; gap: 5px; font-size: 12px; }
+      .user-avatar { width: 24px; height: 24px; }
       .choice-grid { grid-template-columns: 1fr; }
       .subject-level-buttons { grid-template-columns: 1fr; }
       .choice { min-height: 58px; }
@@ -726,6 +832,10 @@
         <button class="button secondary small" id="resetDemo" type="button">데모 초기화</button>
         <button class="button primary small" id="signupButton" type="button">회원가입</button>
         <button class="button ghost" id="loginButton" type="button">로그인</button>
+        <span class="ai-token-chip" id="aiTokenChip" title="오늘 남은 AI 토큰" hidden>
+          <span>AI 토큰</span><strong id="aiTokenChipValue">- / -</strong>
+          <span class="ai-token-chip-track" role="progressbar" aria-label="오늘 남은 AI 토큰" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="aiTokenChipBar"></span></span>
+        </span>
         <div class="user-menu" id="userMenu" hidden>
           <button class="user-chip" id="userMenuButton" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="userDropdown">
             <span class="user-avatar" id="userInitial">김</span>
@@ -828,17 +938,17 @@
           <div class="timeline" id="timeline">
             <div class="timeline-item" data-index="0">
               <span class="timeline-order">01</span>
-              <div class="timeline-copy"><strong id="taskOneTitle">핵심 개념 익히기</strong><span id="taskOneContent">15분 · 개념 카드와 예제로 준비하기</span></div>
+              <div class="timeline-copy"><strong id="taskOneTitle">핵심 개념 익히기</strong><div class="plan-step-content" id="taskOneContent">15분 · 개념 카드와 예제로 준비하기</div></div>
               <button class="check-button" type="button" aria-label="1단계 완료">✓</button>
             </div>
             <div class="timeline-item" data-index="1">
               <span class="timeline-order">02</span>
-              <div class="timeline-copy"><strong id="taskTwoTitle">실습 따라하기</strong><span id="taskTwoContent">20분 · 단계별 미니 실습 수행하기</span></div>
+              <div class="timeline-copy"><strong id="taskTwoTitle">실습 따라하기</strong><div class="plan-step-content" id="taskTwoContent">20분 · 단계별 미니 실습 수행하기</div></div>
               <button class="check-button" type="button" aria-label="2단계 완료">✓</button>
             </div>
             <div class="timeline-item" data-index="2">
               <span class="timeline-order">03</span>
-              <div class="timeline-copy"><strong id="taskThreeTitle">핵심 내용 복습</strong><span id="taskThreeContent">10분 · 오늘 배운 내용 한 번 더 확인하기</span></div>
+              <div class="timeline-copy"><strong id="taskThreeTitle">핵심 내용 복습</strong><div class="plan-step-content" id="taskThreeContent">10분 · 오늘 배운 내용 한 번 더 확인하기</div></div>
               <button class="check-button" type="button" aria-label="3단계 완료">✓</button>
             </div>
           </div>
@@ -858,14 +968,27 @@
           <strong id="profileLevel">미설정</strong>
           <div class="subject-tags" id="subjectTags"><span class="subject-tag">과목을 선택해 주세요</span></div>
         </div>
+        <div class="ai-quota-card" id="aiQuotaCard" hidden>
+          <div class="ai-quota-top"><span>오늘의 AI 토큰</span><strong><span id="aiRemainingTokens">0</span> / <span id="aiDailyLimit">0</span></strong></div>
+          <div class="ai-quota-track" aria-label="AI 토큰 잔여량"><span id="aiQuotaBar" style="width:0%"></span></div>
+          <div class="ai-quota-foot"><span id="aiQuotaStatus">AI 기능 설정 전</span><button class="ai-link-button" id="aiSettingsButton" type="button">AI 설정</button></div>
+        </div>
         <div class="progress-list" id="subjectProgressList">
           <div class="subject-progress">
             <div class="subject-progress-top"><strong>학습 준비</strong><span id="setupProgressText">0%</span></div>
             <div class="subject-track"><span id="setupProgressBar" style="width:0%"></span></div>
           </div>
         </div>
-        <button class="button primary block profile-plan-button" id="generatePlan" type="button" disabled>오늘의 플랜 생성하기</button>
+        <button class="button primary block profile-plan-button" id="generatePlan" type="button" disabled>AI 학습 플랜 생성하기</button>
       </aside>
+    </section>
+
+    <section class="content-card ai-recommendation-card" data-page-section="plan" hidden aria-labelledby="aiRecommendationTitle">
+      <div class="card-head">
+        <div><h2 id="aiRecommendationTitle">AI 다음 학습 추천</h2><p>정답률, 미해결 오답과 완료 단계를 바탕으로 다음 재학습 항목을 추천합니다.</p></div>
+        <button class="button secondary small" id="generateRecommendation" type="button" disabled>추천 생성</button>
+      </div>
+      <div id="aiRecommendationResult" class="empty-state"><div><strong>아직 생성된 추천이 없습니다.</strong><span>과목을 선택하고 추천 생성 버튼을 눌러 주세요.</span></div></div>
     </section>
 
     <section class="insight-grid" data-page-section="dashboard" aria-label="학습 상세 통계">
@@ -894,14 +1017,17 @@
       </div>
       <div class="plan-subject-tabs" id="quizSubjectTabs" aria-label="문제 과목 선택"></div>
       <div class="quiz-callout">
-        <div><strong id="quizLaunchTitle">과목을 선택해 주세요</strong><p id="quizGuide">학습 프로필에 등록한 과목 중 하나를 선택해 바로 시작할 수 있어요.</p></div>
-        <button class="button primary small" id="quizButton" type="button" disabled>문제 풀기</button>
+        <div><strong id="quizLaunchTitle">과목을 선택해 주세요</strong><p id="quizGuide">학습 프로필에 등록한 과목 중 하나를 선택해 문제은행 또는 AI 문제를 시작할 수 있어요.</p></div>
+        <div class="quiz-launch-actions">
+          <button class="button secondary small" id="quizButton" type="button" disabled>기존 문제 풀기</button>
+          <button class="button primary small" id="aiQuizButton" type="button" disabled>AI 문제 생성</button>
+        </div>
       </div>
     </section>
 
     <section class="content-card wrong-note-card" data-page-section="wrong" hidden aria-labelledby="wrongNotesTitle">
       <div class="card-head">
-        <div><h2 id="wrongNotesTitle">오답 노트</h2><p>틀린 문제와 해설을 확인하고 재학습 완료 상태를 남길 수 있어요.</p></div>
+        <div><h2 id="wrongNotesTitle">오답 노트</h2><p>틀린 문제를 확인하고 AI 맞춤 해설과 재학습 행동을 받을 수 있어요.</p></div>
         <span class="today-tag" id="wrongNoteCount">미해결 0개</span>
       </div>
       <div class="filter-row">
@@ -1144,6 +1270,33 @@
         </div>
       </div>
     </section>
+  </div>
+
+  <div class="modal-backdrop" id="aiConsentModal" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="aiConsentTitle">
+      <div class="modal-head">
+        <div><h2 id="aiConsentTitle">AI 학습 기능 설정</h2><p>학습 플랜과 오답 정보를 외부 AI에서 처리하기 위한 설정입니다.</p></div>
+        <button class="close-button" type="button" data-close="aiConsentModal" aria-label="닫기">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="ai-consent-note">선택한 과목·수준과 필요한 학습 내용만 Cloudflare Workers AI로 전송합니다. 이메일, 비밀번호, 인증 토큰은 전송하지 않습니다.</p>
+        <form id="aiConsentForm">
+          <div class="field"><label for="aiExplanationStyle">설명 방식</label><select id="aiExplanationStyle"><option value="BRIEF">간결하게</option><option value="DETAILED">자세하게</option><option value="PRACTICAL">실습 중심</option></select></div>
+          <div class="field"><label for="aiAvailableMinutes">희망 학습 시간</label><input id="aiAvailableMinutes" type="number" min="5" max="240" step="5" value="30" required></div>
+          <label class="check-field"><input id="aiConsentCheck" type="checkbox"><span>외부 AI 처리 안내를 확인했으며 AI 학습 기능 사용에 동의합니다.</span></label>
+          <div class="form-message" id="aiConsentMessage" role="alert"></div>
+          <button class="button primary block" id="aiConsentSubmit" type="submit">동의하고 AI 기능 사용</button>
+        </form>
+      </div>
+    </section>
+  </div>
+
+  <div class="ai-loading-backdrop" id="aiLoadingOverlay" role="status" aria-live="assertive" aria-busy="true" hidden>
+    <div class="ai-loading-panel">
+      <span class="ai-loading-spinner" aria-hidden="true"></span>
+      <strong id="aiLoadingTitle">AI가 학습 내용을 준비하고 있어요</strong>
+      <span id="aiLoadingMessage">보통 수 초, 최대 90초가 걸릴 수 있습니다.</span>
+    </div>
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"><span class="toast-icon">●</span><span id="toastMessage"></span></div>

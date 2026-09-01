@@ -13,6 +13,8 @@ import com.neuroplan.auth.auth.dto.SignupRequest;
 import com.neuroplan.auth.auth.dto.UpdateNicknameRequest;
 import com.neuroplan.auth.auth.dto.UserResponse;
 import com.neuroplan.auth.auth.dto.WithdrawRequest;
+import com.neuroplan.auth.ai.AiPreferencesService;
+import com.neuroplan.auth.ai.AiQuotaService;
 import com.neuroplan.auth.config.AuthProperties;
 import com.neuroplan.auth.error.ApiException;
 import com.neuroplan.auth.session.AuthCookieService;
@@ -54,6 +56,8 @@ public class AuthController {
     private final AuthProperties authProperties;
     private final CurrentUserService currentUserService;
     private final ReauthService reauthService;
+    private final AiQuotaService aiQuotaService;
+    private final AiPreferencesService aiPreferencesService;
 
     public AuthController(
             UserRepository userRepository,
@@ -64,7 +68,9 @@ public class AuthController {
             AuthCookieService cookieService,
             AuthProperties authProperties,
             CurrentUserService currentUserService,
-            ReauthService reauthService
+            ReauthService reauthService,
+            AiQuotaService aiQuotaService,
+            AiPreferencesService aiPreferencesService
     ) {
         this.userRepository = userRepository;
         this.sessionRepository = sessionRepository;
@@ -75,6 +81,8 @@ public class AuthController {
         this.authProperties = authProperties;
         this.currentUserService = currentUserService;
         this.reauthService = reauthService;
+        this.aiQuotaService = aiQuotaService;
+        this.aiPreferencesService = aiPreferencesService;
     }
 
     @PostMapping("/signup")
@@ -97,6 +105,8 @@ public class AuthController {
         } catch (DuplicateKeyException exception) {
             throw new ApiException(HttpStatus.CONFLICT, "이미 가입된 이메일입니다.");
         }
+        aiQuotaService.ensureQuota(user.id());
+        aiPreferencesService.ensure(user.id());
         issueTokens(user, response);
         return ResponseEntity.status(HttpStatus.CREATED).body(new AuthResponse(UserResponse.from(user)));
     }
