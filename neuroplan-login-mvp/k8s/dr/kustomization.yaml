@@ -13,7 +13,7 @@ patches:
 
 images:
   - name: 192.168.34.21:5000/neuroplan/frontend
-    newTag: "870fecf"
+    newTag: "38545ee"
 
   - name: 192.168.34.21:5000/neuroplan/backend
-    newTag: "e34e134"
+    newTag: "38545ee"
