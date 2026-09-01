@@ -975,12 +975,17 @@
       const date = new Date();
       date.setHours(0, 0, 0, 0);
       date.setDate(date.getDate() - (27 - index));
-      const key = date.toISOString().slice(0, 10);
+      const key = new Intl.DateTimeFormat("en-CA", {
+        timeZone: seoulTimeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+      }).format(date);
       const item = activityByDate.get(key);
       const activity = (item?.solvedCount || 0) + (item?.completedStepCount || 0);
       const level = activity >= 8 ? 3 : activity >= 4 ? 2 : activity > 0 ? 1 : 0;
-      const label = `${key}: 총 활동 ${activity}회 (풀이 ${item?.solvedCount || 0}문제, 완료 ${item?.completedStepCount || 0}단계)`;
-      return `<span class="heatmap-cell${level ? ` level-${level}` : ""}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"></span>`;
+      const label = `${key}: 학습량 ${activity}회 (풀이 ${item?.solvedCount || 0}문제, 완료 ${item?.completedStepCount || 0}단계)`;
+      return `<span class="heatmap-cell${level ? ` level-${level}` : ""}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"><strong>${date.getDate()}일</strong><small>${activity}회</small></span>`;
     });
     $("#studyHeatmap").innerHTML = cells.join("");
 
@@ -1013,7 +1018,10 @@
             <p class="wrong-note-explanation"><strong>해설</strong>: ${escapeHtml(note.explanation)}</p>
             ${feedback ? `<div class="ai-feedback"><strong>AI 맞춤 해설</strong><p>${escapeHtml(feedback.feedback)}</p>${feedback.recommendedActions?.length ? `<ul>${feedback.recommendedActions.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}</div>` : ""}
             <div class="wrong-note-actions">
-              <button class="button ghost small" type="button" data-ai-feedback="${note.questionId}">${feedback ? "AI 해설 다시 생성" : "AI 해설 받기"}</button>
+              <div class="ai-action-with-usage">
+                <button class="button ghost small" type="button" data-ai-feedback="${note.questionId}">${feedback ? "AI 해설 다시 생성" : "AI 해설 받기"}</button>
+                <span class="ai-average-note" data-ai-average="WRONG_FEEDBACK">평균 사용 토큰 확인 중</span>
+              </div>
               ${note.relearned ? "" : `<button class="button secondary small" type="button" data-relearn-question="${note.questionId}">재학습 완료로 표시</button>`}
             </div>
           </article>`;
@@ -1027,12 +1035,14 @@
     $("#aiTokenChip").hidden = !state.authenticated;
     const quota = state.ai.quota;
     const preference = state.ai.preferences || defaultState.ai.preferences;
-    const averageLabels = {
-      PLAN: "학습 플랜",
-      QUESTION_DRAFT: "AI 문제",
-      WRONG_FEEDBACK: "오답 해설",
-      WEEKLY_INSIGHT: "재학습 추천"
-    };
+    const averages = new Map((quota?.featureAverages || []).map(item => [item.feature, item]));
+    $$('[data-ai-average]').forEach(element => {
+      const average = averages.get(element.dataset.aiAverage);
+      element.textContent = average
+        ? `평균 약 ${Number(average.averageTokens).toLocaleString("ko-KR")}토큰`
+        : "평균 사용 기록 없음";
+      element.title = average ? `성공 요청 ${average.sampleCount}건 기준` : "성공한 사용 기록이 없습니다.";
+    });
     if (quota) {
       const remaining = Number(quota.remainingToday || 0);
       const dailyLimit = Number(quota.dailyLimit || 0);
@@ -1049,15 +1059,6 @@
       $(".ai-token-chip-track").setAttribute("aria-valuetext", `${remaining.toLocaleString("ko-KR")} / ${dailyLimit.toLocaleString("ko-KR")} 남음`);
       $("#aiTokenChip").title = `오늘 AI 토큰 ${remaining.toLocaleString("ko-KR")} / ${dailyLimit.toLocaleString("ko-KR")} 남음`;
       $("#aiQuotaStatus").textContent = preference.enabled ? `오늘 ${Number(quota.usedToday).toLocaleString("ko-KR")} 토큰 사용` : "동의 후 AI 기능 사용 가능";
-      const averages = new Map((quota.featureAverages || []).map(item => [item.feature, item]));
-      $("#aiTokenAverageList").innerHTML = Object.entries(averageLabels).map(([feature, label]) => {
-        const average = averages.get(feature);
-        const value = average
-          ? `평균 ${Number(average.averageTokens).toLocaleString("ko-KR")}`
-          : "기록 없음";
-        const title = average ? `성공 요청 ${average.sampleCount}건 기준` : "성공한 사용 기록이 없습니다.";
-        return `<span class="ai-token-average-item" title="${escapeHtml(title)}"><span>${label}</span><strong>${value}</strong></span>`;
-      }).join("");
     } else {
       $("#aiRemainingTokens").textContent = "-";
       $("#aiDailyLimit").textContent = "-";
@@ -1068,7 +1069,6 @@
       $(".ai-token-chip-track").setAttribute("aria-valuenow", "0");
       $(".ai-token-chip-track").setAttribute("aria-valuetext", "확인할 수 없음");
       $("#aiQuotaStatus").textContent = apiConfig.enabled ? "AI 상태 확인 필요" : "데모 모드";
-      $("#aiTokenAverageList").innerHTML = '<span class="ai-token-average-item">사용 기록 없음</span>';
     }
     $("#aiSettingsButton").textContent = preference.enabled ? "AI 설정 변경" : "AI 사용 설정";
     $("#generateRecommendation").disabled = !state.authenticated || !hasCompleteProfile();

@@ -73,7 +73,8 @@ public class AiQuotaService {
 
     private List<AiFeatureTokenAverage> featureAverages() {
         return jdbcTemplate.query("""
-                SELECT usage.feature, ROUND(AVG(usage.token_delta)) AS average_tokens,
+                SELECT token_usage_source.feature,
+                       ROUND(AVG(token_usage_source.token_delta)) AS average_tokens,
                        COUNT(*) AS sample_count
                   FROM (
                         SELECT CASE
@@ -95,10 +96,10 @@ public class AiQuotaService {
                            AND refunded.entry_type = 'REFUND'
                          WHERE r.generation_status = 'SUCCEEDED'
                            AND refunded.id IS NULL
-                       ) usage
-                 WHERE usage.feature IN ('PLAN', 'WRONG_FEEDBACK', 'WEEKLY_INSIGHT', 'QUESTION_DRAFT')
-                 GROUP BY usage.feature
-                 ORDER BY FIELD(usage.feature, 'PLAN', 'QUESTION_DRAFT', 'WRONG_FEEDBACK', 'WEEKLY_INSIGHT')
+                       ) AS token_usage_source
+                 WHERE token_usage_source.feature IN ('PLAN', 'WRONG_FEEDBACK', 'WEEKLY_INSIGHT', 'QUESTION_DRAFT')
+                 GROUP BY token_usage_source.feature
+                 ORDER BY FIELD(token_usage_source.feature, 'PLAN', 'QUESTION_DRAFT', 'WRONG_FEEDBACK', 'WEEKLY_INSIGHT')
                 """, (rs, rowNum) -> new AiFeatureTokenAverage(
                 rs.getString("feature"), rs.getInt("average_tokens"), rs.getInt("sample_count")
         ));

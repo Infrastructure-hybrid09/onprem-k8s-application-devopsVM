@@ -326,8 +326,10 @@
     .weekly-summary-item { padding: 13px; border-radius: 14px; background: var(--sky-soft); }
     .weekly-summary-item span { display: block; color: var(--muted); font-size: 10px; font-weight: 800; }
     .weekly-summary-item strong { display: block; margin-top: 6px; color: var(--navy); font-size: 22px; }
-    .heatmap-grid { display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: 6px; }
-    .heatmap-cell { aspect-ratio: 1; min-width: 12px; border-radius: 5px; background: #edf3ee; }
+    .heatmap-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-auto-rows: 30px; gap: 7px; }
+    .heatmap-cell { display: flex; align-items: center; justify-content: space-between; min-width: 0; padding: 0 8px; border-radius: 8px; color: #71877d; background: #edf3ee; font-size: 9px; }
+    .heatmap-cell strong { color: inherit; font-size: 10px; }
+    .heatmap-cell small { color: inherit; font-size: 8px; font-weight: 800; }
     .heatmap-cell.level-1 { background: #dceee2; }
     .heatmap-cell.level-2 { background: #abd5b9; }
     .heatmap-cell.level-3 { background: #75ad8c; }
@@ -507,11 +509,10 @@
     .ai-quota-track { height: 7px; margin-top: 9px; overflow: hidden; border-radius: 999px; background: #dfece3; }
     .ai-quota-track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #5c9e7e, #8bbda2); }
     .ai-quota-foot { margin-top: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 10px; }
-    .ai-token-averages { margin-top: 11px; padding-top: 10px; border-top: 1px solid #d7e8dd; }
-    .ai-token-averages-title { display: block; margin-bottom: 7px; color: #45695a; font-size: 10px; font-weight: 900; }
-    .ai-token-average-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 8px; }
-    .ai-token-average-item { display: flex; justify-content: space-between; gap: 6px; color: var(--muted); font-size: 9px; }
-    .ai-token-average-item strong { color: #315f4c; font-size: 9px; white-space: nowrap; }
+    .ai-action-with-usage { display: inline-flex; align-items: center; flex-direction: column; gap: 5px; }
+    .ai-average-note { color: #5d776b; font-size: 9px; font-weight: 800; line-height: 1.25; white-space: nowrap; }
+    .profile-ai-action { display: grid; gap: 6px; }
+    .profile-ai-action .ai-average-note { text-align: center; }
     .ai-link-button { padding: 0; border: 0; color: #39705a; background: transparent; cursor: pointer; font: inherit; font-weight: 900; }
     .ai-recommendation-card { margin-top: 16px; }
     .ai-recommendation-result { padding: 17px; border: 1px solid #c8ddd0; border-radius: 16px; background: #f4faf6; }
@@ -819,7 +820,10 @@
       .timeline-order { width: 38px; height: 38px; }
       .quiz-callout { align-items: flex-start; flex-direction: column; }
       .quiz-launch-actions { width: 100%; justify-content: stretch; }
-      .quiz-launch-actions .button { flex: 1 1 140px; }
+      .quiz-launch-actions > .button, .quiz-launch-actions .ai-action-with-usage { flex: 1 1 140px; }
+      .quiz-launch-actions .ai-action-with-usage .button { width: 100%; }
+      .heatmap-grid { grid-auto-rows: 27px; gap: 5px; }
+      .heatmap-cell { padding: 0 5px; }
       .ai-token-chip { width: 164px; min-height: 42px; padding: 5px 8px; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 5px; }
       .ai-token-chip-label { font-size: 9px; }
       .ai-token-chip strong { font-size: 10px; text-align: right; }
@@ -1004,10 +1008,6 @@
           <div class="ai-quota-top"><span>오늘의 AI 토큰</span><strong><span id="aiRemainingTokens">0</span> / <span id="aiDailyLimit">0</span></strong></div>
           <div class="ai-quota-track" aria-label="AI 토큰 잔여량"><span id="aiQuotaBar" style="width:0%"></span></div>
           <div class="ai-quota-foot"><span id="aiQuotaStatus">AI 기능 설정 전</span><button class="ai-link-button" id="aiSettingsButton" type="button">AI 설정</button></div>
-          <div class="ai-token-averages">
-            <span class="ai-token-averages-title">기능별 평균 토큰 · 성공한 실제 요청 기준</span>
-            <div class="ai-token-average-list" id="aiTokenAverageList"><span class="ai-token-average-item">사용 기록 없음</span></div>
-          </div>
         </div>
         <div class="progress-list" id="subjectProgressList">
           <div class="subject-progress">
@@ -1015,14 +1015,20 @@
             <div class="subject-track"><span id="setupProgressBar" style="width:0%"></span></div>
           </div>
         </div>
-        <button class="button primary block profile-plan-button" id="generatePlan" type="button" disabled>AI 학습 플랜 생성하기</button>
+        <div class="profile-ai-action">
+          <button class="button primary block profile-plan-button" id="generatePlan" type="button" disabled>AI 학습 플랜 생성하기</button>
+          <span class="ai-average-note" data-ai-average="PLAN">평균 사용 토큰 확인 중</span>
+        </div>
       </aside>
     </section>
 
     <section class="content-card ai-recommendation-card" data-page-section="plan" hidden aria-labelledby="aiRecommendationTitle">
       <div class="card-head">
         <div><h2 id="aiRecommendationTitle">AI 다음 학습 추천</h2><p>정답률, 미해결 오답과 완료 단계를 바탕으로 다음 재학습 항목을 추천합니다.</p></div>
-        <button class="button secondary small" id="generateRecommendation" type="button" disabled>추천 생성</button>
+        <div class="ai-action-with-usage">
+          <button class="button secondary small" id="generateRecommendation" type="button" disabled>추천 생성</button>
+          <span class="ai-average-note" data-ai-average="WEEKLY_INSIGHT">평균 사용 토큰 확인 중</span>
+        </div>
       </div>
       <div id="aiRecommendationResult" class="empty-state"><div><strong>아직 생성된 추천이 없습니다.</strong><span>과목을 선택하고 추천 생성 버튼을 눌러 주세요.</span></div></div>
     </section>
@@ -1039,11 +1045,11 @@
         <div class="subject-stat-list" id="subjectStatList"><span class="metric-caption">문제를 풀면 과목별 정답률이 나타납니다.</span></div>
       </article>
       <article class="content-card insight-card">
-        <h2>최근 28일 활동량</h2>
+        <h2>최근 28일 학습량</h2>
         <p>색이 진할수록 해당 날짜의 풀이 수와 완료 단계 수가 많습니다.</p>
-        <div class="heatmap-grid" id="studyHeatmap" aria-label="최근 28일 학습 활동"></div>
-        <div class="heatmap-legend" aria-label="학습 활동량 범례">
-          <span class="heatmap-legend-label">활동량</span>
+        <div class="heatmap-grid" id="studyHeatmap" aria-label="최근 28일 학습량, 7일씩 4주"></div>
+        <div class="heatmap-legend" aria-label="학습량 범례">
+          <span class="heatmap-legend-label">학습량</span>
           <span class="heatmap-legend-item"><i class="heatmap-swatch" aria-hidden="true"></i>0회</span>
           <span class="heatmap-legend-item"><i class="heatmap-swatch level-1" aria-hidden="true"></i>1~3회</span>
           <span class="heatmap-legend-item"><i class="heatmap-swatch level-2" aria-hidden="true"></i>4~7회</span>
@@ -1062,7 +1068,10 @@
         <div><strong id="quizLaunchTitle">과목을 선택해 주세요</strong><p id="quizGuide">학습 프로필에 등록한 과목 중 하나를 선택해 문제은행 또는 AI 문제를 시작할 수 있어요.</p></div>
         <div class="quiz-launch-actions">
           <button class="button secondary small" id="quizButton" type="button" disabled>기존 문제 풀기</button>
-          <button class="button primary small" id="aiQuizButton" type="button" disabled>AI 문제 생성</button>
+          <div class="ai-action-with-usage">
+            <button class="button primary small" id="aiQuizButton" type="button" disabled>AI 문제 생성</button>
+            <span class="ai-average-note" data-ai-average="QUESTION_DRAFT">평균 사용 토큰 확인 중</span>
+          </div>
         </div>
       </div>
     </section>
