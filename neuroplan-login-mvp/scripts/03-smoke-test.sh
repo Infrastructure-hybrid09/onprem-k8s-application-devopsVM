@@ -156,7 +156,7 @@ curl_request -ksS --fail -b "$COOKIE_JAR" "$BASE_URL/api/learning/plans/history?
 echo "===== AI wrong feedback / recommendation / remaining tokens ====="
 curl_request -ksS --fail -b "$COOKIE_JAR" -X POST \
   "$BASE_URL/api/ai/questions?subjectCode=LINUX&count=5" | tee "$AI_QUIZ_FILE" | jq -e \
-  '.generationRunId > 0 and (.questions | length) == 5 and all(.questions[]; (.options | length) == 4)'
+  '.generationRunId > 0 and .fallback == false and (.questions | length) == 5 and all(.questions[]; (.options | length) == 4)'
 AI_QUIZ_RUN_ID="$(jq -er '.generationRunId' "$AI_QUIZ_FILE")"
 AI_QUIZ_QUESTION_NO="$(jq -er '.questions[0].questionNo' "$AI_QUIZ_FILE")"
 AI_QUIZ_OPTION_NO="$(jq -er '.questions[0].options[0].optionNo' "$AI_QUIZ_FILE")"
@@ -180,10 +180,18 @@ curl_request -ksS --fail -b "$COOKIE_JAR" -X POST \
 curl_request -ksS --fail -b "$COOKIE_JAR" \
   "$BASE_URL/api/ai/recommendations?subjectCode=DATABASE" | jq -e \
   'length >= 1 and .[0].subjectCode == "DATABASE"'
-AI_REMAINING_AFTER="$(curl_request -ksS --fail -b "$COOKIE_JAR" \
-  "$BASE_URL/api/ai/quota" | jq -er '.remainingToday')"
+AI_QUOTA_AFTER="$(curl_request -ksS --fail -b "$COOKIE_JAR" "$BASE_URL/api/ai/quota")"
+AI_REMAINING_AFTER="$(jq -er '.remainingToday' <<<"$AI_QUOTA_AFTER")"
 [[ "$AI_REMAINING_AFTER" -lt "$AI_REMAINING_BEFORE" ]] || \
   { echo "[FAIL] AI token usage was not deducted" >&2; exit 7; }
+jq -e '
+  (.featureAverages | type) == "array" and
+  ([.featureAverages[].feature] | index("PLAN") != null) and
+  ([.featureAverages[].feature] | index("QUESTION_DRAFT") != null) and
+  ([.featureAverages[].feature] | index("WRONG_FEEDBACK") != null) and
+  ([.featureAverages[].feature] | index("WEEKLY_INSIGHT") != null) and
+  all(.featureAverages[]; .averageTokens > 0 and .sampleCount > 0)
+' <<<"$AI_QUOTA_AFTER"
 
 echo "===== Refresh Token rotation ====="
 curl_request -ksS --fail -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
