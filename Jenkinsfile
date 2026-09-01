@@ -226,7 +226,7 @@ for path in paths:
                 f"newTag entry not found for image: {image} in {path}"
             )
 
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text(chr(10).join(lines) + chr(10))
 PY
 
                     echo "Updated On-Prem Kustomize:"
