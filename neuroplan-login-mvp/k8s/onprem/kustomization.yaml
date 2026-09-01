@@ -12,4 +12,4 @@ images:
     newTag: "35f5cdf"
 
   - name: 192.168.34.21:5000/neuroplan/backend
-    newTag: "0.8.0"
+    newTag: "419e9c5"
