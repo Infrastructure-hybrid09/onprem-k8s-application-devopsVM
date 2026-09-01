@@ -822,7 +822,7 @@
       const item = activityByDate.get(key);
       const activity = (item?.solvedCount || 0) + (item?.completedStepCount || 0);
       const level = activity >= 8 ? 3 : activity >= 4 ? 2 : activity > 0 ? 1 : 0;
-      const label = `${key}: 풀이 ${item?.solvedCount || 0}문제, 완료 ${item?.completedStepCount || 0}단계`;
+      const label = `${key}: 총 활동 ${activity}회 (풀이 ${item?.solvedCount || 0}문제, 완료 ${item?.completedStepCount || 0}단계)`;
       return `<span class="heatmap-cell${level ? ` level-${level}` : ""}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"></span>`;
     });
     $("#studyHeatmap").innerHTML = cells.join("");

@@ -316,19 +316,25 @@
     .metric-caption { margin-top: 6px; color: var(--muted); font-size: 11px; }
 
     .insight-grid { margin-top: 16px; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(300px, .9fr); gap: 16px; }
-    .insight-card { padding: 22px; }
+    .insight-card { align-self: start; padding: 22px; }
     .insight-card h2 { margin: 0; font-size: 17px; letter-spacing: -.04em; }
     .insight-card > p { margin: 6px 0 17px; color: var(--muted); font-size: 12px; }
     .weekly-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
     .weekly-summary-item { padding: 13px; border-radius: 14px; background: var(--sky-soft); }
     .weekly-summary-item span { display: block; color: var(--muted); font-size: 10px; font-weight: 800; }
     .weekly-summary-item strong { display: block; margin-top: 6px; color: var(--navy); font-size: 22px; }
-    .heatmap-grid { display: grid; grid-template-columns: repeat(14, 1fr); gap: 5px; }
+    .heatmap-grid { display: grid; grid-template-columns: repeat(14, minmax(0, 1fr)); gap: 6px; }
     .heatmap-cell { aspect-ratio: 1; min-width: 12px; border-radius: 5px; background: #edf3ee; }
     .heatmap-cell.level-1 { background: #dceee2; }
     .heatmap-cell.level-2 { background: #abd5b9; }
     .heatmap-cell.level-3 { background: #75ad8c; }
-    .heatmap-legend { margin-top: 10px; display: flex; justify-content: space-between; color: var(--muted); font-size: 10px; }
+    .heatmap-legend { margin-top: 13px; display: flex; align-items: center; flex-wrap: wrap; gap: 9px 12px; color: var(--muted); font-size: 10px; }
+    .heatmap-legend-label { margin-right: 2px; color: var(--navy); font-size: 10px; font-weight: 800; }
+    .heatmap-legend-item { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+    .heatmap-swatch { width: 12px; height: 12px; border-radius: 4px; background: #edf3ee; }
+    .heatmap-swatch.level-1 { background: #dceee2; }
+    .heatmap-swatch.level-2 { background: #abd5b9; }
+    .heatmap-swatch.level-3 { background: #75ad8c; }
     .subject-stat-list { margin-top: 15px; display: grid; gap: 9px; }
     .subject-stat-row { display: grid; grid-template-columns: minmax(80px, 1fr) 42px; gap: 10px; align-items: center; font-size: 11px; }
     .subject-stat-row strong { display: block; color: var(--navy); }
@@ -1003,10 +1009,16 @@
         <div class="subject-stat-list" id="subjectStatList"><span class="metric-caption">문제를 풀면 과목별 정답률이 나타납니다.</span></div>
       </article>
       <article class="content-card insight-card">
-        <h2>최근 28일 학습 히트맵</h2>
-        <p>진한 칸일수록 풀이 또는 플랜 완료 활동이 많았던 날입니다.</p>
+        <h2>최근 28일 활동량</h2>
+        <p>색이 진할수록 해당 날짜의 풀이 수와 완료 단계 수가 많습니다.</p>
         <div class="heatmap-grid" id="studyHeatmap" aria-label="최근 28일 학습 활동"></div>
-        <div class="heatmap-legend"><span>적음</span><span>많음</span></div>
+        <div class="heatmap-legend" aria-label="학습 활동량 범례">
+          <span class="heatmap-legend-label">활동량</span>
+          <span class="heatmap-legend-item"><i class="heatmap-swatch" aria-hidden="true"></i>0회</span>
+          <span class="heatmap-legend-item"><i class="heatmap-swatch level-1" aria-hidden="true"></i>1~3회</span>
+          <span class="heatmap-legend-item"><i class="heatmap-swatch level-2" aria-hidden="true"></i>4~7회</span>
+          <span class="heatmap-legend-item"><i class="heatmap-swatch level-3" aria-hidden="true"></i>8회 이상</span>
+        </div>
       </article>
     </section>
 
