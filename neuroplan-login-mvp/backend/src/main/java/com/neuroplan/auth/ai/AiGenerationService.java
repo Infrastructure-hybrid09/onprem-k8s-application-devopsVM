@@ -73,8 +73,9 @@ public class AiGenerationService {
                 String outputJson = writeJson(fallback);
                 completeRun(runId, "FALLBACK", response, startedAt, outputJson,
                         "INVALID_JSON", "AI 응답 형식이 맞지 않아 기본 플랜을 사용했습니다.");
-                AiQuotaResponse quota = quotaService.recordUsage(
-                        userId, runId, response.inputTokens(), response.outputTokens(), response.usageUnits());
+                AiQuotaResponse quota = quotaService.recordRefundedUsage(
+                        userId, runId, response.inputTokens(), response.outputTokens(), response.usageUnits(),
+                        "INVALID_JSON 플랜 응답 환불");
                 return new PlanGeneration(runId, true, fallback, quota);
             }
         } catch (AiProviderException exception) {
@@ -180,8 +181,9 @@ public class AiGenerationService {
                 QuizContent fallback = fallbackQuiz(subjectName, levelLabel, count);
                 completeRun(runId, "FALLBACK", response, startedAt, writeJson(fallback),
                         "INVALID_JSON", "AI 문제 형식이 맞지 않아 검증된 기본 문제를 사용했습니다.");
-                AiQuotaResponse quota = quotaService.recordUsage(
-                        userId, runId, response.inputTokens(), response.outputTokens(), response.usageUnits());
+                AiQuotaResponse quota = quotaService.recordRefundedUsage(
+                        userId, runId, response.inputTokens(), response.outputTokens(), response.usageUnits(),
+                        "INVALID_JSON 문제 응답 환불");
                 return new QuizGeneration(runId, true, fallback, quota);
             }
         } catch (AiProviderException exception) {
@@ -228,13 +230,25 @@ public class AiGenerationService {
         }
     }
 
+    public void markPersistenceFailure(long runId, String message) {
+        jdbcTemplate.update("""
+                UPDATE ai_generation_runs
+                   SET generation_status = 'FAILED',
+                       error_code = 'PERSISTENCE_FAILED',
+                       error_message = ?,
+                       completed_at = CURRENT_TIMESTAMP(6)
+                 WHERE id = ?
+                """, truncate(message, 500), runId);
+    }
+
     private FeedbackGeneration fallbackFeedback(long userId, long runId, WrongNoteContext context,
                                                   AiProviderResponse response, Instant startedAt, String code) {
         FeedbackContent content = basicFeedback(context);
         completeRun(runId, "FALLBACK", response, startedAt, writeJson(content), code,
                 "AI 응답 형식이 맞지 않아 기본 오답 해설을 사용했습니다.");
-        AiQuotaResponse quota = quotaService.recordUsage(
-                userId, runId, response.inputTokens(), response.outputTokens(), response.usageUnits());
+        AiQuotaResponse quota = quotaService.recordRefundedUsage(
+                userId, runId, response.inputTokens(), response.outputTokens(), response.usageUnits(),
+                code + " 오답 해설 응답 환불");
         return new FeedbackGeneration(runId, true, content, quota);
     }
 
@@ -243,8 +257,9 @@ public class AiGenerationService {
         RecommendationContent content = basicRecommendation(context);
         completeRun(runId, "FALLBACK", response, startedAt, writeJson(content), code,
                 "AI 응답 형식이 맞지 않아 기본 재학습 추천을 사용했습니다.");
-        AiQuotaResponse quota = quotaService.recordUsage(
-                userId, runId, response.inputTokens(), response.outputTokens(), response.usageUnits());
+        AiQuotaResponse quota = quotaService.recordRefundedUsage(
+                userId, runId, response.inputTokens(), response.outputTokens(), response.usageUnits(),
+                code + " 재학습 추천 응답 환불");
         return new RecommendationGeneration(runId, true, content, quota);
     }
 

@@ -87,8 +87,40 @@ public class AiQuotaService {
                     input_tokens, output_tokens, provider_usage_units, provider_usage_unit,
                     description, created_at
                 ) VALUES (?, ?, 'USAGE', ?, ?, ?, ?, 'NEURONS', 'Cloudflare Workers AI 사용', CURRENT_TIMESTAMP(6))
+                ON DUPLICATE KEY UPDATE id = id
                 """, userId, generationRunId, total, inputTokens, outputTokens, usageUnits);
         return status(userId);
+    }
+
+    @Transactional
+    public AiQuotaResponse refundUsage(long userId, long generationRunId, String reason) {
+        jdbcTemplate.update("""
+                INSERT INTO ai_token_ledger (
+                    user_id, generation_run_id, entry_type, token_delta,
+                    input_tokens, output_tokens, provider_usage_units, provider_usage_unit,
+                    description, created_at
+                )
+                SELECT user_id, generation_run_id, 'REFUND', -token_delta,
+                       input_tokens, output_tokens, provider_usage_units, provider_usage_unit,
+                       ?, CURRENT_TIMESTAMP(6)
+                 FROM ai_token_ledger
+                 WHERE user_id = ? AND generation_run_id = ? AND entry_type = 'USAGE'
+                ON DUPLICATE KEY UPDATE description = VALUES(description)
+                """, truncateReason(reason), userId, generationRunId);
+        return status(userId);
+    }
+
+    @Transactional
+    public AiQuotaResponse recordRefundedUsage(long userId, long generationRunId,
+                                               int inputTokens, int outputTokens,
+                                               java.math.BigDecimal usageUnits, String reason) {
+        recordUsage(userId, generationRunId, inputTokens, outputTokens, usageUnits);
+        return refundUsage(userId, generationRunId, reason);
+    }
+
+    private String truncateReason(String reason) {
+        String value = reason == null || reason.isBlank() ? "AI 요청 처리 실패 환불" : reason.trim();
+        return value.length() <= 200 ? value : value.substring(0, 200);
     }
 
     public record AiQuotaResponse(
