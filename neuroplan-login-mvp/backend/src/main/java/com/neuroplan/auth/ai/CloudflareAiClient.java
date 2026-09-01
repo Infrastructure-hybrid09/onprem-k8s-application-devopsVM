@@ -33,6 +33,10 @@ public class CloudflareAiClient {
     }
 
     public AiProviderResponse generateJson(String systemPrompt, String userPrompt) {
+        return generateJson(systemPrompt, userPrompt, properties.getMaxCompletionTokens());
+    }
+
+    public AiProviderResponse generateJson(String systemPrompt, String userPrompt, int maxCompletionTokens) {
         if (!properties.configured()) {
             throw new AiProviderException("NOT_CONFIGURED", null, "Cloudflare Workers AI 설정이 준비되지 않았습니다.");
         }
@@ -43,7 +47,7 @@ public class CloudflareAiClient {
                 ),
                 "temperature", 0.1,
                 "reasoning_effort", "low",
-                "max_completion_tokens", properties.getMaxCompletionTokens(),
+                "max_completion_tokens", maxCompletionTokens,
                 "response_format", Map.of("type", "json_object"),
                 "stream", false
         );

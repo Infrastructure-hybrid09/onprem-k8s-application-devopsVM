@@ -45,6 +45,7 @@ app:
     model: ${LLM_MODEL:@cf/qwen/qwen3.8-27b}
     prompt-version: ${LLM_PROMPT_VERSION:neuroplan-0.8.0-v1}
     max-completion-tokens: ${LLM_MAX_COMPLETION_TOKENS:1200}
+    quiz-max-completion-tokens: ${LLM_QUIZ_MAX_COMPLETION_TOKENS:2200}
     daily-token-limit: ${LLM_DAILY_TOKEN_LIMIT:20000}
     connect-timeout-seconds: ${LLM_CONNECT_TIMEOUT_SECONDS:5}
     read-timeout-seconds: ${LLM_READ_TIMEOUT_SECONDS:90}

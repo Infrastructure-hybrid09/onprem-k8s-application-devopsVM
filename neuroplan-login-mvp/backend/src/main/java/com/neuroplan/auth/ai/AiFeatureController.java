@@ -3,6 +3,7 @@ package com.neuroplan.auth.ai;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.util.List;
+import java.util.function.Supplier;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -20,12 +21,12 @@ import com.neuroplan.auth.user.UserRecord;
 
 import jakarta.servlet.http.HttpServletRequest;
 
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.stereotype.Controller;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -45,17 +46,20 @@ public class AiFeatureController {
     private final AiPreferencesService preferencesService;
     private final AiGenerationService generationService;
     private final ObjectMapper objectMapper;
+    private final TransactionTemplate transactionTemplate;
 
     public AiFeatureController(JdbcTemplate jdbcTemplate, CurrentUserService currentUserService,
                                AiQuotaService quotaService, AiPreferencesService preferencesService,
                                AiGenerationService generationService,
-                               ObjectMapper objectMapper) {
+                               ObjectMapper objectMapper,
+                               PlatformTransactionManager transactionManager) {
         this.jdbcTemplate = jdbcTemplate;
         this.currentUserService = currentUserService;
         this.quotaService = quotaService;
         this.preferencesService = preferencesService;
         this.generationService = generationService;
         this.objectMapper = objectMapper;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
     @GetMapping("/quota")
@@ -81,19 +85,18 @@ public class AiFeatureController {
     }
 
     @PostMapping("/plans")
-    @Transactional
     public AiPlanResponse generatePlan(@RequestParam String subjectCode, HttpServletRequest request) {
         UserRecord user = currentUserService.require(request);
         ProfileSubject focus = profileSubject(user.id(), subjectCode);
         PlanGeneration generated = generationService.generatePlan(
                 user.id(), focus.subjectId(), focus.subjectName(), focus.levelLabel());
-        long planId = savePlan(user.id(), focus, generated);
+        long planId = persistAiResult(user.id(), generated.generationRunId(), "AI 플랜 저장 실패 환불",
+                () -> savePlan(user.id(), focus, generated));
         return new AiPlanResponse(plan(planId, user.id()), generated.generationRunId(),
                 generated.fallback(), generated.content().rationale(), generated.quota());
     }
 
     @PostMapping("/questions")
-    @Transactional
     public AiQuizResponse generateQuestions(
             @RequestParam String subjectCode,
             @RequestParam(defaultValue = "5") int count,
@@ -124,12 +127,12 @@ public class AiFeatureController {
     }
 
     @PostMapping("/wrong-notes/{questionId}/feedback")
-    @Transactional
     public AiFeedbackResponse generateWrongFeedback(@PathVariable long questionId, HttpServletRequest request) {
         UserRecord user = currentUserService.require(request);
         WrongNoteContext context = wrongNoteContext(user.id(), questionId);
         FeedbackGeneration generated = generationService.generateWrongFeedback(user.id(), context);
-        long feedbackId = insertFeedback(user.id(), questionId, generated);
+        long feedbackId = persistAiResult(user.id(), generated.generationRunId(), "AI 오답 해설 저장 실패 환불",
+                () -> insertFeedback(user.id(), questionId, generated));
         return new AiFeedbackResponse(feedbackId, generated.generationRunId(), generated.fallback(),
                 generated.content().feedback(), generated.content().recommendedActions(), generated.quota());
     }
@@ -151,7 +154,6 @@ public class AiFeatureController {
     }
 
     @PostMapping("/recommendations")
-    @Transactional
     public AiRecommendationResponse generateRecommendation(
             @RequestParam String subjectCode,
             HttpServletRequest request
@@ -162,7 +164,8 @@ public class AiFeatureController {
         RecommendationGeneration generated = generationService.generateRecommendation(
                 user.id(), new RecommendationContext(
                         focus.subjectId(), focus.subjectName(), focus.levelLabel(), summary));
-        long queueId = insertRecommendation(user.id(), focus.subjectId(), generated);
+        long queueId = persistAiResult(user.id(), generated.generationRunId(), "AI 재학습 추천 저장 실패 환불",
+                () -> insertRecommendation(user.id(), focus.subjectId(), generated));
         return new AiRecommendationResponse(queueId, generated.generationRunId(), generated.fallback(),
                 generated.content().title(), generated.content().content(), generated.content().priority(),
                 generated.quota());
@@ -207,40 +210,20 @@ public class AiFeatureController {
     }
 
     private long savePlan(long userId, ProfileSubject focus, PlanGeneration generated) {
-        Long planId = jdbcTemplate.query("""
-                SELECT id FROM daily_plans
-                 WHERE user_id = ? AND subject_id = ? AND plan_date = CURRENT_DATE
-                 ORDER BY id DESC LIMIT 1
-                """, (rs, rowNum) -> rs.getLong("id"), userId, focus.subjectId())
-                .stream().findFirst().orElse(null);
-        if (planId == null) {
-            try {
-                GeneratedKeyHolder keys = new GeneratedKeyHolder();
-                jdbcTemplate.update(connection -> {
-                    PreparedStatement statement = connection.prepareStatement("""
-                            INSERT INTO daily_plans (
-                                user_id, subject_id, plan_date, title, plan_status, created_at, updated_at
-                            ) VALUES (?, ?, CURRENT_DATE, ?, 'READY', CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))
-                            """, Statement.RETURN_GENERATED_KEYS);
-                    statement.setLong(1, userId);
-                    statement.setLong(2, focus.subjectId());
-                    statement.setString(3, generated.content().title());
-                    return statement;
-                }, keys);
-                if (keys.getKey() == null) throw new IllegalStateException("플랜 번호를 생성하지 못했습니다.");
-                planId = keys.getKey().longValue();
-            } catch (DuplicateKeyException exception) {
-                throw new ApiException(HttpStatus.CONFLICT,
-                        "과목별 플랜 UNIQUE 키가 user_id, subject_id, plan_date인지 확인해 주세요.");
-            }
-        } else {
-            jdbcTemplate.update("""
-                    UPDATE daily_plans
-                       SET title = ?, plan_status = 'READY', updated_at = CURRENT_TIMESTAMP(6)
-                     WHERE id = ? AND user_id = ?
-                    """, generated.content().title(), planId, userId);
-            jdbcTemplate.update("DELETE FROM plan_steps WHERE plan_id = ?", planId);
-        }
+        GeneratedKeyHolder keys = new GeneratedKeyHolder();
+        jdbcTemplate.update(connection -> {
+            PreparedStatement statement = connection.prepareStatement("""
+                    INSERT INTO daily_plans (
+                        user_id, subject_id, plan_date, title, plan_status, created_at, updated_at
+                    ) VALUES (?, ?, CURRENT_DATE, ?, 'READY', CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))
+                    """, Statement.RETURN_GENERATED_KEYS);
+            statement.setLong(1, userId);
+            statement.setLong(2, focus.subjectId());
+            statement.setString(3, generated.content().title());
+            return statement;
+        }, keys);
+        if (keys.getKey() == null) throw new IllegalStateException("플랜 번호를 생성하지 못했습니다.");
+        long planId = keys.getKey().longValue();
         for (var step : generated.content().steps()) {
             jdbcTemplate.update("""
                     INSERT INTO plan_steps (
@@ -256,6 +239,27 @@ public class AiFeatureController {
                 """, planId, generated.generationRunId(), generated.content().rationale(),
                 criteriaJson(focus, generated.fallback()));
         return planId;
+    }
+
+    private <T> T persistAiResult(long userId, long generationRunId, String refundReason,
+                                  Supplier<T> persistence) {
+        try {
+            T result = transactionTemplate.execute(status -> persistence.get());
+            if (result == null) throw new IllegalStateException("AI 결과를 저장하지 못했습니다.");
+            return result;
+        } catch (RuntimeException persistenceFailure) {
+            try {
+                generationService.markPersistenceFailure(generationRunId, refundReason);
+            } catch (RuntimeException statusFailure) {
+                persistenceFailure.addSuppressed(statusFailure);
+            }
+            try {
+                quotaService.refundUsage(userId, generationRunId, refundReason);
+            } catch (RuntimeException refundFailure) {
+                persistenceFailure.addSuppressed(refundFailure);
+            }
+            throw persistenceFailure;
+        }
     }
 
     private PlanResponse plan(long planId, long userId) {

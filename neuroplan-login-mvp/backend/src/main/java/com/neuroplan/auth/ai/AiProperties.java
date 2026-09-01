@@ -14,6 +14,7 @@ public class AiProperties {
     private String model = "@cf/qwen/qwen3.8-27b";
     private String promptVersion = "neuroplan-0.8.0-v1";
     private int maxCompletionTokens = 1200;
+    private int quizMaxCompletionTokens = 2200;
     private int dailyTokenLimit = 20000;
     private int connectTimeoutSeconds = 5;
     private int readTimeoutSeconds = 90;
@@ -34,6 +35,8 @@ public class AiProperties {
     public void setPromptVersion(String promptVersion) { this.promptVersion = promptVersion; }
     public int getMaxCompletionTokens() { return maxCompletionTokens; }
     public void setMaxCompletionTokens(int maxCompletionTokens) { this.maxCompletionTokens = maxCompletionTokens; }
+    public int getQuizMaxCompletionTokens() { return quizMaxCompletionTokens; }
+    public void setQuizMaxCompletionTokens(int quizMaxCompletionTokens) { this.quizMaxCompletionTokens = quizMaxCompletionTokens; }
     public int getDailyTokenLimit() { return dailyTokenLimit; }
     public void setDailyTokenLimit(int dailyTokenLimit) { this.dailyTokenLimit = dailyTokenLimit; }
     public int getConnectTimeoutSeconds() { return connectTimeoutSeconds; }

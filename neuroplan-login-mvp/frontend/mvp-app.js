@@ -169,16 +169,16 @@
     if (!normalized) return '<p class="plan-step-summary">학습 내용을 준비하고 있습니다.</p>';
 
     const lines = normalized
-      // AI가 `1)`, `1.`, `①` 또는 실제 줄바꿈을 섞어 반환해도
-      // 각 실습 행동을 별도 목록 항목으로 표시한다.
-      .replace(/[\s\u00a0]+(?=(?:\d{1,2}[.)]|[①-⑳])\s*)/g, "\n")
+      // 목록 번호는 `1. `, `1) `, `① `처럼 마커 뒤에 공백이 있을 때만 인식한다.
+      // `8.8.8.8`, `1.1.1.1`, 버전 `1.35.4`는 숫자 목록이 아니므로 중간에서 나누지 않는다.
+      .replace(/[\s\u00a0]+(?=(?:\d{1,2}[.)]|[①-⑳])[\s\u00a0]+)/g, "\n")
       .split(/\n+/)
       .map(value => value.trim())
       .filter(Boolean);
     const intro = [];
     const actions = [];
     lines.forEach(line => {
-      const numbered = line.match(/^(?:\d{1,2}[.)]|[①-⑳])\s*(.+)$/s);
+      const numbered = line.match(/^(?:\d{1,2}[.)]|[①-⑳])[\s\u00a0]+(.+)$/s);
       if (numbered) actions.push(numbered[1].trim());
       else if (actions.length) actions[actions.length - 1] = `${actions[actions.length - 1]} ${line}`.trim();
       else intro.push(line);
@@ -620,7 +620,7 @@
     clearTimeout(toastTimer);
     $("#toastMessage").textContent = message;
     $("#toast").classList.add("show");
-    toastTimer = setTimeout(() => $("#toast").classList.remove("show"), 2800);
+    toastTimer = setTimeout(() => $("#toast").classList.remove("show"), 6000);
   }
 
   function isAiRequest(path) {
@@ -975,12 +975,17 @@
       const date = new Date();
       date.setHours(0, 0, 0, 0);
       date.setDate(date.getDate() - (27 - index));
-      const key = date.toISOString().slice(0, 10);
+      const key = new Intl.DateTimeFormat("en-CA", {
+        timeZone: seoulTimeZone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+      }).format(date);
       const item = activityByDate.get(key);
       const activity = (item?.solvedCount || 0) + (item?.completedStepCount || 0);
       const level = activity >= 8 ? 3 : activity >= 4 ? 2 : activity > 0 ? 1 : 0;
-      const label = `${key}: 총 활동 ${activity}회 (풀이 ${item?.solvedCount || 0}문제, 완료 ${item?.completedStepCount || 0}단계)`;
-      return `<span class="heatmap-cell${level ? ` level-${level}` : ""}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"></span>`;
+      const label = `${key}: 학습량 ${activity}회 (풀이 ${item?.solvedCount || 0}문제, 완료 ${item?.completedStepCount || 0}단계)`;
+      return `<span class="heatmap-cell${level ? ` level-${level}` : ""}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"><strong>${date.getDate()}일</strong><small>${activity}회</small></span>`;
     });
     $("#studyHeatmap").innerHTML = cells.join("");
 
@@ -1013,7 +1018,10 @@
             <p class="wrong-note-explanation"><strong>해설</strong>: ${escapeHtml(note.explanation)}</p>
             ${feedback ? `<div class="ai-feedback"><strong>AI 맞춤 해설</strong><p>${escapeHtml(feedback.feedback)}</p>${feedback.recommendedActions?.length ? `<ul>${feedback.recommendedActions.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}</div>` : ""}
             <div class="wrong-note-actions">
-              <button class="button ghost small" type="button" data-ai-feedback="${note.questionId}">${feedback ? "AI 해설 다시 생성" : "AI 해설 받기"}</button>
+              <div class="ai-action-with-usage">
+                <button class="button ghost small" type="button" data-ai-feedback="${note.questionId}">${feedback ? "AI 해설 다시 생성" : "AI 해설 받기"}</button>
+                <span class="ai-average-note" data-ai-average="WRONG_FEEDBACK">평균 사용 토큰 확인 중</span>
+              </div>
               ${note.relearned ? "" : `<button class="button secondary small" type="button" data-relearn-question="${note.questionId}">재학습 완료로 표시</button>`}
             </div>
           </article>`;
@@ -1027,6 +1035,14 @@
     $("#aiTokenChip").hidden = !state.authenticated;
     const quota = state.ai.quota;
     const preference = state.ai.preferences || defaultState.ai.preferences;
+    const averages = new Map((quota?.featureAverages || []).map(item => [item.feature, item]));
+    $$('[data-ai-average]').forEach(element => {
+      const average = averages.get(element.dataset.aiAverage);
+      element.textContent = average
+        ? `평균 약 ${Number(average.averageTokens).toLocaleString("ko-KR")}토큰`
+        : "평균 사용 기록 없음";
+      element.title = average ? `성공 요청 ${average.sampleCount}건 기준` : "성공한 사용 기록이 없습니다.";
+    });
     if (quota) {
       const remaining = Number(quota.remainingToday || 0);
       const dailyLimit = Number(quota.dailyLimit || 0);

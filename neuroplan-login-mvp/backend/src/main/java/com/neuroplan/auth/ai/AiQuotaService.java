@@ -1,5 +1,7 @@
 package com.neuroplan.auth.ai;
 
+import java.util.List;
+
 import com.neuroplan.auth.error.ApiException;
 
 import org.springframework.http.HttpStatus;
@@ -38,7 +40,7 @@ public class AiQuotaService {
 
     public AiQuotaResponse status(long userId) {
         ensureQuota(userId);
-        return jdbcTemplate.query("""
+        AiQuotaResponse quota = jdbcTemplate.query("""
                 SELECT q.daily_token_limit, q.monthly_token_limit, q.is_enabled,
                        COALESCE(SUM(CASE WHEN l.created_at >= CURRENT_DATE THEN l.token_delta ELSE 0 END), 0) AS used_today,
                        COALESCE(SUM(CASE WHEN l.created_at >= DATE_FORMAT(CURRENT_DATE, '%Y-%m-01') THEN l.token_delta ELSE 0 END), 0) AS used_month
@@ -58,10 +60,48 @@ public class AiQuotaService {
                     Math.max(dailyLimit - usedToday, 0),
                     monthlyLimit,
                     usedMonth,
-                    monthlyLimit == null ? null : Math.max(monthlyLimit - usedMonth, 0)
+                    monthlyLimit == null ? null : Math.max(monthlyLimit - usedMonth, 0),
+                    List.of()
             );
         }, userId).stream().findFirst().orElseThrow(() -> new ApiException(
                 HttpStatus.INTERNAL_SERVER_ERROR, "AI 사용 한도를 확인하지 못했습니다."
+        ));
+        return new AiQuotaResponse(
+                quota.enabled(), quota.dailyLimit(), quota.usedToday(), quota.remainingToday(),
+                quota.monthlyLimit(), quota.usedMonth(), quota.remainingMonth(), featureAverages());
+    }
+
+    private List<AiFeatureTokenAverage> featureAverages() {
+        return jdbcTemplate.query("""
+                SELECT token_usage_source.feature,
+                       ROUND(AVG(token_usage_source.token_delta)) AS average_tokens,
+                       COUNT(*) AS sample_count
+                  FROM (
+                        SELECT CASE
+                                 WHEN r.request_type = 'PLAN'
+                                  AND JSON_VALUE(r.output_json, '$.questions[0].questionNo') IS NOT NULL
+                                   THEN 'QUESTION_DRAFT'
+                                 WHEN r.request_type = 'PLAN'
+                                  AND JSON_VALUE(r.output_json, '$.priority') IS NOT NULL
+                                   THEN 'WEEKLY_INSIGHT'
+                                 ELSE r.request_type
+                               END AS feature,
+                               charged.token_delta
+                          FROM ai_generation_runs r
+                          JOIN ai_token_ledger charged
+                            ON charged.generation_run_id = r.id
+                           AND charged.entry_type = 'USAGE'
+                     LEFT JOIN ai_token_ledger refunded
+                            ON refunded.generation_run_id = r.id
+                           AND refunded.entry_type = 'REFUND'
+                         WHERE r.generation_status = 'SUCCEEDED'
+                           AND refunded.id IS NULL
+                       ) AS token_usage_source
+                 WHERE token_usage_source.feature IN ('PLAN', 'WRONG_FEEDBACK', 'WEEKLY_INSIGHT', 'QUESTION_DRAFT')
+                 GROUP BY token_usage_source.feature
+                 ORDER BY FIELD(token_usage_source.feature, 'PLAN', 'QUESTION_DRAFT', 'WRONG_FEEDBACK', 'WEEKLY_INSIGHT')
+                """, (rs, rowNum) -> new AiFeatureTokenAverage(
+                rs.getString("feature"), rs.getInt("average_tokens"), rs.getInt("sample_count")
         ));
     }
 
@@ -87,8 +127,40 @@ public class AiQuotaService {
                     input_tokens, output_tokens, provider_usage_units, provider_usage_unit,
                     description, created_at
                 ) VALUES (?, ?, 'USAGE', ?, ?, ?, ?, 'NEURONS', 'Cloudflare Workers AI 사용', CURRENT_TIMESTAMP(6))
+                ON DUPLICATE KEY UPDATE id = id
                 """, userId, generationRunId, total, inputTokens, outputTokens, usageUnits);
         return status(userId);
+    }
+
+    @Transactional
+    public AiQuotaResponse refundUsage(long userId, long generationRunId, String reason) {
+        jdbcTemplate.update("""
+                INSERT INTO ai_token_ledger (
+                    user_id, generation_run_id, entry_type, token_delta,
+                    input_tokens, output_tokens, provider_usage_units, provider_usage_unit,
+                    description, created_at
+                )
+                SELECT user_id, generation_run_id, 'REFUND', -token_delta,
+                       input_tokens, output_tokens, provider_usage_units, provider_usage_unit,
+                       ?, CURRENT_TIMESTAMP(6)
+                 FROM ai_token_ledger
+                 WHERE user_id = ? AND generation_run_id = ? AND entry_type = 'USAGE'
+                ON DUPLICATE KEY UPDATE description = VALUES(description)
+                """, truncateReason(reason), userId, generationRunId);
+        return status(userId);
+    }
+
+    @Transactional
+    public AiQuotaResponse recordRefundedUsage(long userId, long generationRunId,
+                                               int inputTokens, int outputTokens,
+                                               java.math.BigDecimal usageUnits, String reason) {
+        recordUsage(userId, generationRunId, inputTokens, outputTokens, usageUnits);
+        return refundUsage(userId, generationRunId, reason);
+    }
+
+    private String truncateReason(String reason) {
+        String value = reason == null || reason.isBlank() ? "AI 요청 처리 실패 환불" : reason.trim();
+        return value.length() <= 200 ? value : value.substring(0, 200);
     }
 
     public record AiQuotaResponse(
@@ -98,6 +170,9 @@ public class AiQuotaService {
             int remainingToday,
             Integer monthlyLimit,
             int usedMonth,
-            Integer remainingMonth
+            Integer remainingMonth,
+            List<AiFeatureTokenAverage> featureAverages
     ) {}
+
+    public record AiFeatureTokenAverage(String feature, int averageTokens, int sampleCount) {}
 }

@@ -73,8 +73,9 @@ public class AiGenerationService {
                 String outputJson = writeJson(fallback);
                 completeRun(runId, "FALLBACK", response, startedAt, outputJson,
                         "INVALID_JSON", "AI 응답 형식이 맞지 않아 기본 플랜을 사용했습니다.");
-                AiQuotaResponse quota = quotaService.recordUsage(
-                        userId, runId, response.inputTokens(), response.outputTokens(), response.usageUnits());
+                AiQuotaResponse quota = quotaService.recordRefundedUsage(
+                        userId, runId, response.inputTokens(), response.outputTokens(), response.usageUnits(),
+                        "INVALID_JSON 플랜 응답 환불");
                 return new PlanGeneration(runId, true, fallback, quota);
             }
         } catch (AiProviderException exception) {
@@ -122,7 +123,7 @@ public class AiGenerationService {
         var preference = preferencesService.requireEnabled(userId);
         quotaService.requireAvailable(userId);
         String input = context.subjectId() + "|" + context.learningLevel() + "|" + context.summary();
-        long runId = startRun(userId, context.subjectId(), "PLAN", input);
+        long runId = startRun(userId, context.subjectId(), "WEEKLY_INSIGHT", input);
         Instant startedAt = Instant.now();
         String systemPrompt = JSON_ONLY + "당신은 IT 학습 기록을 분석해 다음 학습을 추천하는 코치입니다. "
                 + "출력 키는 title, content, priority이며 priority는 1에서 5 사이의 정수입니다.";
@@ -156,19 +157,19 @@ public class AiGenerationService {
         quotaService.requireAvailable(userId);
         int count = Math.min(Math.max(requestedCount, 3), 5);
         String input = subjectName + "|" + levelLabel + "|QUIZ|" + count;
-        // 현재 DB의 request_type CHECK(PLAN, WRONG_FEEDBACK)와 호환하면서
-        // input_hash와 output_json으로 플랜/문제 생성 결과를 구분합니다.
-        long runId = startRun(userId, subjectId, "PLAN", input);
+        long runId = startRun(userId, subjectId, "QUESTION_DRAFT", input);
         Instant startedAt = Instant.now();
         String systemPrompt = JSON_ONLY + "당신은 IT 교육용 객관식 확인 문제 생성기입니다. "
                 + "출력 키는 questions이며 정확히 " + count + "개입니다. "
                 + "각 문제는 questionNo, text, difficulty, explanation, options를 포함합니다. "
-                + "options는 optionNo, text, correct를 가진 정확히 4개 보기이며 정답은 하나뿐입니다.";
+                + "options는 optionNo, text, correct를 가진 정확히 4개 보기이며 정답은 하나뿐입니다. "
+                + "문제는 100자, 보기는 60자, 해설은 180자 이내로 간결하게 작성하세요.";
         String userPrompt = ("%s %s 학습자를 위한 서로 중복되지 않는 확인 문제 %d개를 한국어로 작성하세요. "
                 + "암기만 묻지 말고 실제 상황 판단과 개념 이해를 고르게 확인하세요.")
                 .formatted(subjectName, levelLabel, count);
         try {
-            AiProviderResponse response = client.generateJson(systemPrompt, userPrompt);
+            AiProviderResponse response = client.generateJson(
+                    systemPrompt, userPrompt, properties.getQuizMaxCompletionTokens());
             try {
                 QuizContent content = parseQuiz(response.content(), subjectName, levelLabel, count);
                 String outputJson = objectMapper.writeValueAsString(content);
@@ -180,8 +181,9 @@ public class AiGenerationService {
                 QuizContent fallback = fallbackQuiz(subjectName, levelLabel, count);
                 completeRun(runId, "FALLBACK", response, startedAt, writeJson(fallback),
                         "INVALID_JSON", "AI 문제 형식이 맞지 않아 검증된 기본 문제를 사용했습니다.");
-                AiQuotaResponse quota = quotaService.recordUsage(
-                        userId, runId, response.inputTokens(), response.outputTokens(), response.usageUnits());
+                AiQuotaResponse quota = quotaService.recordRefundedUsage(
+                        userId, runId, response.inputTokens(), response.outputTokens(), response.usageUnits(),
+                        "INVALID_JSON 문제 응답 환불");
                 return new QuizGeneration(runId, true, fallback, quota);
             }
         } catch (AiProviderException exception) {
@@ -228,13 +230,25 @@ public class AiGenerationService {
         }
     }
 
+    public void markPersistenceFailure(long runId, String message) {
+        jdbcTemplate.update("""
+                UPDATE ai_generation_runs
+                   SET generation_status = 'FAILED',
+                       error_code = 'PERSISTENCE_FAILED',
+                       error_message = ?,
+                       completed_at = CURRENT_TIMESTAMP(6)
+                 WHERE id = ?
+                """, truncate(message, 500), runId);
+    }
+
     private FeedbackGeneration fallbackFeedback(long userId, long runId, WrongNoteContext context,
                                                   AiProviderResponse response, Instant startedAt, String code) {
         FeedbackContent content = basicFeedback(context);
         completeRun(runId, "FALLBACK", response, startedAt, writeJson(content), code,
                 "AI 응답 형식이 맞지 않아 기본 오답 해설을 사용했습니다.");
-        AiQuotaResponse quota = quotaService.recordUsage(
-                userId, runId, response.inputTokens(), response.outputTokens(), response.usageUnits());
+        AiQuotaResponse quota = quotaService.recordRefundedUsage(
+                userId, runId, response.inputTokens(), response.outputTokens(), response.usageUnits(),
+                code + " 오답 해설 응답 환불");
         return new FeedbackGeneration(runId, true, content, quota);
     }
 
@@ -243,8 +257,9 @@ public class AiGenerationService {
         RecommendationContent content = basicRecommendation(context);
         completeRun(runId, "FALLBACK", response, startedAt, writeJson(content), code,
                 "AI 응답 형식이 맞지 않아 기본 재학습 추천을 사용했습니다.");
-        AiQuotaResponse quota = quotaService.recordUsage(
-                userId, runId, response.inputTokens(), response.outputTokens(), response.usageUnits());
+        AiQuotaResponse quota = quotaService.recordRefundedUsage(
+                userId, runId, response.inputTokens(), response.outputTokens(), response.usageUnits(),
+                code + " 재학습 추천 응답 환불");
         return new RecommendationGeneration(runId, true, content, quota);
     }
 
@@ -347,28 +362,30 @@ public class AiGenerationService {
         List<QuizQuestionContent> questions = new ArrayList<>();
         for (int index = 0; index < count; index++) {
             JsonNode question = questionsNode.get(index);
-            int questionNo = question.path("questionNo").asInt(index + 1);
-            if (questionNo != index + 1) throw new IllegalArgumentException("invalid question number");
+            int questionNo = index + 1;
             JsonNode optionsNode = question.path("options");
             if (!optionsNode.isArray() || optionsNode.size() != 4) {
                 throw new IllegalArgumentException("each question must have 4 options");
             }
             List<QuizOptionContent> options = new ArrayList<>();
             int correctCount = 0;
+            int declaredCorrectOptionNo = intValue(
+                    question, -1, "correctOptionNo", "correct_option_no", "correctAnswer", "correct_answer");
             for (int optionIndex = 0; optionIndex < 4; optionIndex++) {
                 JsonNode option = optionsNode.get(optionIndex);
-                int optionNo = option.path("optionNo").asInt(optionIndex + 1);
-                boolean correct = option.path("correct").asBoolean(false);
-                if (optionNo != optionIndex + 1) throw new IllegalArgumentException("invalid option number");
+                int optionNo = optionIndex + 1;
+                boolean correct = booleanValue(option, "correct", "isCorrect", "is_correct")
+                        || declaredCorrectOptionNo == optionNo;
                 if (correct) correctCount++;
-                options.add(new QuizOptionContent(optionNo, requiredText(option, "text", 1000), correct));
+                options.add(new QuizOptionContent(optionNo,
+                        requiredTextAny(option, 1000, "text", "optionText", "option_text"), correct));
             }
             if (correctCount != 1) throw new IllegalArgumentException("exactly one correct option is required");
             questions.add(new QuizQuestionContent(
                     questionNo,
                     subjectName,
                     optionalText(question, "difficulty", levelLabel, 30),
-                    requiredText(question, "text", 1000),
+                    requiredTextAny(question, 1000, "text", "questionText", "question_text", "question"),
                     requiredText(question, "explanation", 4000),
                     options
             ));
@@ -390,6 +407,43 @@ public class AiGenerationService {
         String value = node.path(field).asText("").trim();
         if (value.isBlank()) throw new IllegalArgumentException(field + " required");
         return truncate(value, maxLength);
+    }
+
+    private String requiredTextAny(JsonNode node, int maxLength, String... fields) {
+        for (String field : fields) {
+            String value = node.path(field).asText("").trim();
+            if (!value.isBlank()) return truncate(value, maxLength);
+        }
+        throw new IllegalArgumentException(String.join("/", fields) + " required");
+    }
+
+    private boolean booleanValue(JsonNode node, String... fields) {
+        for (String field : fields) {
+            JsonNode value = node.path(field);
+            if (value.isBoolean()) return value.asBoolean();
+            if (value.isInt()) return value.asInt() == 1;
+            if (value.isTextual()) {
+                String text = value.asText().trim();
+                if ("true".equalsIgnoreCase(text) || "1".equals(text)) return true;
+                if ("false".equalsIgnoreCase(text) || "0".equals(text)) return false;
+            }
+        }
+        return false;
+    }
+
+    private int intValue(JsonNode node, int fallback, String... fields) {
+        for (String field : fields) {
+            JsonNode value = node.path(field);
+            if (value.canConvertToInt()) return value.asInt();
+            if (value.isTextual()) {
+                try {
+                    return Integer.parseInt(value.asText().trim());
+                } catch (NumberFormatException ignored) {
+                    // 다음 호환 필드를 확인합니다.
+                }
+            }
+        }
+        return fallback;
     }
 
     private String optionalText(JsonNode node, String field, String fallback, int maxLength) {
