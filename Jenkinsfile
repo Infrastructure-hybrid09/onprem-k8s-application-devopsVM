@@ -12,7 +12,8 @@ pipeline {
         FRONTEND_IMAGE = '192.168.34.21:5000/neuroplan/frontend'
         BACKEND_IMAGE  = '192.168.34.21:5000/neuroplan/backend'
 
-        KUSTOMIZATION = 'neuroplan-login-mvp/k8s/onprem/kustomization.yaml'
+        KUSTOMIZATION_ONPREM = 'neuroplan-login-mvp/k8s/onprem/kustomization.yaml'
+        KUSTOMIZATION_DR     = 'neuroplan-login-mvp/k8s/dr/kustomization.yaml'
 
         APP_REPO_SSH = 'git@github.com:Infrastructure-hybrid09/onprem-k8s-application-devopsVM.git'
     }
@@ -183,7 +184,11 @@ pipeline {
 import os
 from pathlib import Path
 
-path = Path(os.environ["KUSTOMIZATION"])
+paths = [
+    Path(os.environ["KUSTOMIZATION_ONPREM"]),
+    Path(os.environ["KUSTOMIZATION_DR"]),
+]
+
 tag = os.environ["IMAGE_TAG"]
 
 targets = []
@@ -194,37 +199,41 @@ if os.environ["FRONTEND_CHANGED"] == "true":
 if os.environ["BACKEND_CHANGED"] == "true":
     targets.append(os.environ["BACKEND_IMAGE"])
 
-lines = path.read_text().splitlines()
+for path in paths:
+    lines = path.read_text().splitlines()
 
-for image in targets:
-    found = False
+    for image in targets:
+        found = False
 
-    for i, line in enumerate(lines):
-        if line.strip() == f"- name: {image}":
+        for i, line in enumerate(lines):
+            if line.strip() == f"- name: {image}":
 
-            for j in range(i + 1, min(i + 5, len(lines))):
-                if lines[j].strip().startswith("newTag:"):
+                for j in range(i + 1, min(i + 5, len(lines))):
+                    if lines[j].strip().startswith("newTag:"):
 
-                    indent = lines[j][
-                        :len(lines[j]) - len(lines[j].lstrip())
-                    ]
+                        indent = lines[j][
+                            :len(lines[j]) - len(lines[j].lstrip())
+                        ]
 
-                    lines[j] = f'{indent}newTag: "{tag}"'
-                    found = True
-                    break
+                        lines[j] = f'{indent}newTag: "{tag}"'
+                        found = True
+                        break
 
-            break
+                break
 
-    if not found:
-        raise SystemExit(
-            f"newTag entry not found for image: {image}"
-        )
+        if not found:
+            raise SystemExit(
+                f"newTag entry not found for image: {image} in {path}"
+            )
 
-path.write_text("\\n".join(lines) + "\\n")
+    path.write_text("\n".join(lines) + "\n")
 PY
 
-                    echo "Updated Kustomize:"
-                    grep -A1 'name:' "$KUSTOMIZATION"
+                    echo "Updated On-Prem Kustomize:"
+                    grep -A1 'name:' "$KUSTOMIZATION_ONPREM"
+
+                    echo "Updated DR Kustomize:"
+                    grep -A1 'name:' "$KUSTOMIZATION_DR"
                 '''
             }
         }
@@ -244,22 +253,36 @@ PY
 
                     kubectl kustomize \
                       "$APP_DIR/k8s/onprem" \
-                      > /tmp/neuroplan-rendered.yaml
+                      > /tmp/neuroplan-onprem-rendered.yaml
 
-                    echo "Rendered images:"
-                    grep 'image:' \
-                      /tmp/neuroplan-rendered.yaml
+                    kubectl kustomize \
+                      "$APP_DIR/k8s/dr" \
+                      > /tmp/neuroplan-dr-rendered.yaml
+
+                    echo "On-Prem rendered images:"
+                    grep 'image:' /tmp/neuroplan-onprem-rendered.yaml
+
+                    echo "DR rendered images:"
+                    grep 'image:' /tmp/neuroplan-dr-rendered.yaml
 
                     if [ "$FRONTEND_CHANGED" = "true" ]; then
                         grep -q \
                           "image: $FRONTEND_IMAGE:$IMAGE_TAG" \
-                          /tmp/neuroplan-rendered.yaml
+                          /tmp/neuroplan-onprem-rendered.yaml
+
+                        grep -q \
+                          "image: $FRONTEND_IMAGE:$IMAGE_TAG" \
+                          /tmp/neuroplan-dr-rendered.yaml
                     fi
 
                     if [ "$BACKEND_CHANGED" = "true" ]; then
                         grep -q \
                           "image: $BACKEND_IMAGE:$IMAGE_TAG" \
-                          /tmp/neuroplan-rendered.yaml
+                          /tmp/neuroplan-onprem-rendered.yaml
+
+                        grep -q \
+                          "image: $BACKEND_IMAGE:$IMAGE_TAG" \
+                          /tmp/neuroplan-dr-rendered.yaml
                     fi
                 '''
             }
@@ -285,7 +308,9 @@ PY
                     sh '''
                         set -eu
 
-                        if git diff --quiet -- "$KUSTOMIZATION"; then
+                        if git diff --quiet -- \
+                          "$KUSTOMIZATION_ONPREM" \
+                          "$KUSTOMIZATION_DR"; then
                             echo "No Kustomize changes to commit."
                             exit 0
                         fi
@@ -293,7 +318,9 @@ PY
                         git config user.name "Jenkins CI"
                         git config user.email "jenkins@nplan.local"
 
-                        git add "$KUSTOMIZATION"
+                        git add \
+                          "$KUSTOMIZATION_ONPREM" \
+                          "$KUSTOMIZATION_DR"
 
                         git commit \
                           -m "ci: update image tags to $IMAGE_TAG"
@@ -325,7 +352,7 @@ PY
 
         always {
             sh '''
-                rm -f /tmp/neuroplan-rendered.yaml || true
+                rm -f /tmp/neuroplan-onprem-rendered.yaml /tmp/neuroplan-dr-rendered.yaml || true
             '''
         }
     }
