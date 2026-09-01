@@ -1941,3 +1941,5 @@
   updateUI();
   restoreSession();
 })();
+
+// CI/CD frontend E2E test
