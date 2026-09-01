@@ -14,7 +14,7 @@ public class AiProperties {
     private String model = "@cf/qwen/qwen3.8-27b";
     private String promptVersion = "neuroplan-0.8.0-v1";
     private int maxCompletionTokens = 1200;
-    private int dailyTokenLimit = 5000;
+    private int dailyTokenLimit = 20000;
     private int connectTimeoutSeconds = 5;
     private int readTimeoutSeconds = 90;
 

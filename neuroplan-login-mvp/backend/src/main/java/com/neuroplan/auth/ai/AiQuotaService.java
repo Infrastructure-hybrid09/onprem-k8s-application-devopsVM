@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AiQuotaService {
+    private static final int LEGACY_DEFAULT_DAILY_LIMIT = 5000;
     private final JdbcTemplate jdbcTemplate;
     private final AiProperties properties;
 
@@ -22,8 +23,17 @@ public class AiQuotaService {
                 INSERT INTO ai_token_quotas (
                     user_id, daily_token_limit, monthly_token_limit, is_enabled, created_at, updated_at
                 ) VALUES (?, ?, NULL, TRUE, CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))
-                ON DUPLICATE KEY UPDATE user_id = VALUES(user_id)
-                """, userId, properties.getDailyTokenLimit());
+                ON DUPLICATE KEY UPDATE
+                    updated_at = CASE
+                        WHEN daily_token_limit = ? THEN CURRENT_TIMESTAMP(6)
+                        ELSE updated_at
+                    END,
+                    daily_token_limit = CASE
+                        WHEN daily_token_limit = ? THEN VALUES(daily_token_limit)
+                        ELSE daily_token_limit
+                    END
+                """, userId, properties.getDailyTokenLimit(),
+                LEGACY_DEFAULT_DAILY_LIMIT, LEGACY_DEFAULT_DAILY_LIMIT);
     }
 
     public AiQuotaResponse status(long userId) {

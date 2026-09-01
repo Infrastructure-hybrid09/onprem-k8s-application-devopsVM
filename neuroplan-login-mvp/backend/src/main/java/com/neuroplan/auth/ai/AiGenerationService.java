@@ -52,7 +52,9 @@ public class AiGenerationService {
         Instant startedAt = Instant.now();
         String systemPrompt = JSON_ONLY + "당신은 IT 교육용 3단계 학습 플랜 생성기입니다. "
                 + "출력 키는 title, rationale, steps이며 steps는 정확히 3개입니다. "
-                + "각 단계는 stepNo, title, content를 포함하고 stepNo는 1, 2, 3입니다.";
+                + "각 단계는 stepNo, title, content를 포함하고 stepNo는 1, 2, 3입니다. "
+                + "content는 3개의 구체적인 실습 행동을 줄바꿈으로 구분해 작성하고, "
+                + "각 줄 앞에 번호나 기호를 붙이지 마세요.";
         String userPrompt = "%s %s 학습자를 위한 오늘의 3단계 학습 플랜을 한국어로 작성하세요. "
                 + "총 학습 시간은 약 %d분이고 설명 방식은 %s입니다. 각 단계는 오늘 수행 가능한 구체적인 실습이어야 합니다.";
         userPrompt = userPrompt.formatted(subjectName, levelLabel, preference.availableMinutes(),

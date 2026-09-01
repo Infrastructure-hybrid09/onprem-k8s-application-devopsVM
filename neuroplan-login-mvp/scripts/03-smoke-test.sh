@@ -83,8 +83,8 @@ cp -- "$RELOAD_COOKIE_JAR" "$COOKIE_JAR"
 echo "===== AI quota / consent ====="
 AI_REMAINING_BEFORE="$(curl_request -ksS --fail -b "$COOKIE_JAR" \
   "$BASE_URL/api/ai/quota" | jq -er '.remainingToday')"
-[[ "$AI_REMAINING_BEFORE" -eq 5000 ]] || \
-  { echo "[FAIL] expected initial AI quota 5000, got $AI_REMAINING_BEFORE" >&2; exit 6; }
+[[ "$AI_REMAINING_BEFORE" -eq 20000 ]] || \
+  { echo "[FAIL] expected initial AI quota 20000, got $AI_REMAINING_BEFORE" >&2; exit 6; }
 curl_request -ksS --fail -b "$COOKIE_JAR" \
   -X PUT -H 'Content-Type: application/json' \
   -d '{"enabled":true,"consent":true,"explanationStyle":"PRACTICAL","availableMinutes":30}' \

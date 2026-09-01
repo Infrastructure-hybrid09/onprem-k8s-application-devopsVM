@@ -128,7 +128,9 @@
   let pendingAiAction = null;
   let aiLoadingHideTimer = null;
   let aiLoadingStartedAt = 0;
-  const aiLoadingMinDurationMs = 500;
+  let refreshSessionPromise = null;
+  const aiLoadingMinDurationMs = 800;
+  const seoulTimeZone = "Asia/Seoul";
 
   function setAiLoading(active, title = "AI가 학습 내용을 준비하고 있어요") {
     const overlay = $("#aiLoadingOverlay");
@@ -137,14 +139,14 @@
     $("#aiLoadingMessage").textContent = "보통 수 초, 최대 120초가 걸릴 수 있습니다.";
     if (active) {
       aiLoadingStartedAt = performance.now();
-      overlay.hidden = false;
+      overlay.classList.add("is-visible");
       overlay.removeAttribute("aria-hidden");
       document.body.setAttribute("aria-busy", "true");
       return;
     }
     const elapsed = performance.now() - aiLoadingStartedAt;
     const hide = () => {
-      overlay.hidden = true;
+      overlay.classList.remove("is-visible");
       overlay.setAttribute("aria-hidden", "true");
       document.body.setAttribute("aria-busy", "false");
     };
@@ -155,28 +157,42 @@
     hide();
   }
 
+  function showAiLoading(title) {
+    setAiLoading(true, title);
+    return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
+      setTimeout(resolve, 80);
+    })));
+  }
+
   function planStepContentHtml(content) {
     const normalized = String(content ?? "").replace(/\r/g, "").trim();
     if (!normalized) return '<p class="plan-step-summary">학습 내용을 준비하고 있습니다.</p>';
 
     const lines = normalized
-      .replace(/\s+(?=\d{1,2}[.)]\s+)/g, "\n")
+      // AI가 `1)`, `1.`, `①` 또는 실제 줄바꿈을 섞어 반환해도
+      // 각 실습 행동을 별도 목록 항목으로 표시한다.
+      .replace(/[\s\u00a0]+(?=(?:\d{1,2}[.)]|[①-⑳])\s*)/g, "\n")
       .split(/\n+/)
       .map(value => value.trim())
       .filter(Boolean);
     const intro = [];
     const actions = [];
     lines.forEach(line => {
-      const numbered = line.match(/^\d{1,2}[.)]\s*(.+)$/s);
+      const numbered = line.match(/^(?:\d{1,2}[.)]|[①-⑳])\s*(.+)$/s);
       if (numbered) actions.push(numbered[1].trim());
       else if (actions.length) actions[actions.length - 1] = `${actions[actions.length - 1]} ${line}`.trim();
       else intro.push(line);
     });
 
+    if (!actions.length && lines.length > 1) {
+      actions.push(...lines);
+      intro.length = 0;
+    }
+
     if (!actions.length) return `<p class="plan-step-summary">${escapeHtml(normalized)}</p>`;
     return [
       intro.length ? `<p class="plan-step-intro">${escapeHtml(intro.join(" "))}</p>` : "",
-      `<ol class="plan-step-actions">${actions.map(action => `<li>${escapeHtml(action)}</li>`).join("")}</ol>`
+      `<ol class="plan-step-actions" aria-label="실습 순서">${actions.map(action => `<li>${escapeHtml(action)}</li>`).join("")}</ol>`
     ].join("");
   }
 
@@ -500,8 +516,21 @@
 
   function formatDateTime(value) {
     if (!value) return "-";
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? escapeHtml(value) : parsed.toLocaleString("ko-KR", { dateStyle: "short", timeStyle: "short" });
+    const text = String(value).trim();
+    const hasTimeZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(text);
+    const parsed = new Date(hasTimeZone ? text : `${text}Z`);
+    if (Number.isNaN(parsed.getTime())) return String(value);
+    const formatted = parsed.toLocaleString("ko-KR", {
+          timeZone: seoulTimeZone,
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false
+        });
+    return `${formatted} KST`;
   }
 
   function renderAdminOverview() {
@@ -614,6 +643,40 @@
     }
   }
 
+  async function refreshSession() {
+    if (!refreshSessionPromise) {
+      refreshSessionPromise = (async () => {
+        let response;
+        try {
+          response = await fetchWithTimeout(`${apiConfig.baseUrl}/auth/refresh`, {
+            method: "POST",
+            credentials: "include",
+            cache: "no-store",
+            headers: { "Content-Type": "application/json" }
+          }, 15000);
+        } catch (error) {
+          throw normalizeRequestError(error, "/auth/refresh");
+        }
+        if (!response.ok) {
+          let message = "로그인 세션을 갱신하지 못했습니다.";
+          try {
+            const payload = await response.json();
+            if (payload?.message) message = payload.message;
+          } catch (_) {
+            // JSON 오류 본문이 아니어도 상태 코드로 세션 만료를 전달합니다.
+          }
+          const error = new Error(message);
+          error.status = response.status;
+          throw error;
+        }
+        return response;
+      })().finally(() => {
+        refreshSessionPromise = null;
+      });
+    }
+    return refreshSessionPromise;
+  }
+
   function normalizeRequestError(error, path) {
     const normalized = error instanceof Error ? error : new Error("서버 응답을 받지 못했습니다.");
     normalized.network = true;
@@ -657,15 +720,15 @@
     }
     const refreshExcluded = ["/auth/login", "/auth/signup", "/auth/refresh", "/auth/reauth"].includes(path);
     if (response.status === 401 && allowRefresh && !refreshExcluded) {
-      let refreshed;
       try {
-        refreshed = await fetchWithTimeout(`${apiConfig.baseUrl}/auth/refresh`, {
-          method: "POST", credentials: "include", cache: "no-store", headers: { "Content-Type": "application/json" }
-        }, 15000);
-      } catch (error) {
-        throw normalizeRequestError(error, "/auth/refresh");
+        await refreshSession();
+        return apiRequest(path, options, false);
+      } catch (refreshError) {
+        if (isAiRequest(path)) {
+          refreshError.message = "AI 요청 중 로그인 세션을 갱신하지 못했습니다. 현재 화면은 유지됩니다.";
+        }
+        throw refreshError;
       }
-      if (refreshed.ok) return apiRequest(path, options, false);
     }
     if (!response.ok) {
       const error = new Error(payload.message || `요청에 실패했습니다. (HTTP ${response.status})`);
@@ -973,10 +1036,11 @@
       $("#aiDailyLimit").textContent = dailyLimit.toLocaleString("ko-KR");
       $("#aiQuotaBar").style.width = `${boundedPercent}%`;
       $("#aiTokenChipValue").textContent = `${remaining.toLocaleString("ko-KR")} / ${dailyLimit.toLocaleString("ko-KR")}`;
-      $("#aiTokenChipPercent").textContent = `${boundedPercent}%`;
       $("#aiTokenChipBar").style.width = `${boundedPercent}%`;
+      $("#aiTokenChip").classList.toggle("low", boundedPercent > 20 && boundedPercent <= 40);
+      $("#aiTokenChip").classList.toggle("critical", boundedPercent <= 20);
       $(".ai-token-chip-track").setAttribute("aria-valuenow", String(boundedPercent));
-      $(".ai-token-chip-track").setAttribute("aria-valuetext", `${boundedPercent}% 남음`);
+      $(".ai-token-chip-track").setAttribute("aria-valuetext", `${remaining.toLocaleString("ko-KR")} / ${dailyLimit.toLocaleString("ko-KR")} 남음`);
       $("#aiTokenChip").title = `오늘 AI 토큰 ${remaining.toLocaleString("ko-KR")} / ${dailyLimit.toLocaleString("ko-KR")} 남음`;
       $("#aiQuotaStatus").textContent = preference.enabled ? `오늘 ${Number(quota.usedToday).toLocaleString("ko-KR")} 토큰 사용` : "동의 후 AI 기능 사용 가능";
     } else {
@@ -984,8 +1048,8 @@
       $("#aiDailyLimit").textContent = "-";
       $("#aiQuotaBar").style.width = "0%";
       $("#aiTokenChipValue").textContent = "- / -";
-      $("#aiTokenChipPercent").textContent = "-%";
       $("#aiTokenChipBar").style.width = "0%";
+      $("#aiTokenChip").classList.remove("low", "critical");
       $(".ai-token-chip-track").setAttribute("aria-valuenow", "0");
       $(".ai-token-chip-track").setAttribute("aria-valuetext", "확인할 수 없음");
       $("#aiQuotaStatus").textContent = apiConfig.enabled ? "AI 상태 확인 필요" : "데모 모드";
@@ -1135,7 +1199,7 @@
       const button = $("#generatePlan");
       button.disabled = true;
       const code = state.activeSubjectCode || state.subjects[0];
-      setAiLoading(true, `AI가 ${subjectName(code)} 학습 플랜을 만들고 있어요`);
+      await showAiLoading(`AI가 ${subjectName(code)} 학습 플랜을 만들고 있어요`);
       try {
         if (apiConfig.enabled) {
           const generated = await apiRequest(`/ai/plans?subjectCode=${encodeURIComponent(code)}`, { method: "POST" });
@@ -1173,7 +1237,7 @@
       const button = $("#generateRecommendation");
       const code = state.activeSubjectCode || state.subjects[0];
       button.disabled = true;
-      setAiLoading(true, `AI가 ${subjectName(code)} 학습 기록을 분석하고 있어요`);
+      await showAiLoading(`AI가 ${subjectName(code)} 학습 기록을 분석하고 있어요`);
       try {
         const generated = apiConfig.enabled
           ? await apiRequest(`/ai/recommendations?subjectCode=${encodeURIComponent(code)}`, { method: "POST" })
@@ -1203,7 +1267,7 @@
     const run = async () => {
       const button = useAi ? $("#aiQuizButton") : $("#quizButton");
       button.disabled = true;
-      if (useAi) setAiLoading(true, `AI가 ${subjectName(code)} 확인 문제 5개를 만들고 있어요`);
+      if (useAi) await showAiLoading(`AI가 ${subjectName(code)} 확인 문제 5개를 만들고 있어요`);
       try {
         if (useAi && apiConfig.enabled) {
           const generated = await apiRequest(`/ai/questions?subjectCode=${encodeURIComponent(code)}&count=5`, { method: "POST" });
@@ -1978,7 +2042,7 @@
       const questionId = Number(aiFeedbackAction.dataset.aiFeedback);
       await ensureAiEnabled(async () => {
         aiFeedbackAction.disabled = true;
-        setAiLoading(true, "AI가 오답을 분석하고 맞춤 해설을 만들고 있어요");
+        await showAiLoading("AI가 오답을 분석하고 맞춤 해설을 만들고 있어요");
         try {
           const generated = apiConfig.enabled
             ? await apiRequest(`/ai/wrong-notes/${questionId}/feedback`, { method: "POST" })
