@@ -1,3 +1,4 @@
+// CI/CD backend E2E test
 package com.neuroplan.auth;
 
 import org.springframework.boot.SpringApplication;
