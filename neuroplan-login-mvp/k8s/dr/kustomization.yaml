@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: application
+
+resources:
+  - 00-namespace.yaml
+  - ../base
+  - 20-gateway-route.yaml
+
+patches:
+  - path: 30-replicas-patch.yaml
+  - path: 31-pdb-patch.yaml
+
+images:
+  - name: 192.168.34.21:5000/neuroplan/frontend
+    newTag: "86e2e61"
+
+  - name: 192.168.34.21:5000/neuroplan/backend
+    newTag: "86e2e61"
