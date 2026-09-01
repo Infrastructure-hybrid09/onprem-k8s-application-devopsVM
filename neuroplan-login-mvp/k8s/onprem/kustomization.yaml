@@ -9,7 +9,7 @@ resources:
 
 images:
   - name: 192.168.34.21:5000/neuroplan/frontend
-    newTag: "35f5cdf"
+    newTag: "9935cf5"
 
   - name: 192.168.34.21:5000/neuroplan/backend
-    newTag: "419e9c5"
+    newTag: "9935cf5"
