@@ -126,13 +126,33 @@
   let reauthExpiresAt = 0;
   let pendingSecureAction = null;
   let pendingAiAction = null;
+  let aiLoadingHideTimer = null;
+  let aiLoadingStartedAt = 0;
+  const aiLoadingMinDurationMs = 500;
 
   function setAiLoading(active, title = "AI가 학습 내용을 준비하고 있어요") {
     const overlay = $("#aiLoadingOverlay");
+    clearTimeout(aiLoadingHideTimer);
     $("#aiLoadingTitle").textContent = title;
-    $("#aiLoadingMessage").textContent = "보통 수 초, 최대 90초가 걸릴 수 있습니다.";
-    overlay.hidden = !active;
-    document.body.setAttribute("aria-busy", String(active));
+    $("#aiLoadingMessage").textContent = "보통 수 초, 최대 120초가 걸릴 수 있습니다.";
+    if (active) {
+      aiLoadingStartedAt = performance.now();
+      overlay.hidden = false;
+      overlay.removeAttribute("aria-hidden");
+      document.body.setAttribute("aria-busy", "true");
+      return;
+    }
+    const elapsed = performance.now() - aiLoadingStartedAt;
+    const hide = () => {
+      overlay.hidden = true;
+      overlay.setAttribute("aria-hidden", "true");
+      document.body.setAttribute("aria-busy", "false");
+    };
+    if (elapsed < aiLoadingMinDurationMs) {
+      aiLoadingHideTimer = setTimeout(hide, aiLoadingMinDurationMs - elapsed);
+      return;
+    }
+    hide();
   }
 
   function planStepContentHtml(content) {
@@ -574,29 +594,103 @@
     toastTimer = setTimeout(() => $("#toast").classList.remove("show"), 2800);
   }
 
+  function isAiRequest(path) {
+    return path.startsWith("/ai/");
+  }
+
+  function requestTimeoutMs(path) {
+    return isAiRequest(path) ? 125000 : 20000;
+  }
+
+  async function fetchWithTimeout(url, options, timeoutMs) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const request = { ...options };
+    if (!request.signal) request.signal = controller.signal;
+    try {
+      return await fetch(url, request);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  function normalizeRequestError(error, path) {
+    const normalized = error instanceof Error ? error : new Error("서버 응답을 받지 못했습니다.");
+    normalized.network = true;
+    normalized.status = normalized.status || 0;
+    if (error?.name === "AbortError") {
+      normalized.message = isAiRequest(path)
+        ? "AI 응답 시간이 초과되었습니다. 잠시 후 새로고침해 저장된 플랜을 확인해 주세요."
+        : "요청 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.";
+    } else if (error instanceof TypeError || !error) {
+      normalized.message = isAiRequest(path)
+        ? "AI 서버 응답을 받지 못했습니다. 네트워크 또는 게이트웨이를 확인해 주세요."
+        : "서버에 연결하지 못했습니다. 네트워크 상태를 확인해 주세요.";
+    } else if (error instanceof SyntaxError) {
+      normalized.message = isAiRequest(path)
+        ? "AI 응답이 중간에 끊겼습니다. 잠시 후 저장된 플랜과 토큰 잔량을 확인해 주세요."
+        : "서버 응답 형식을 확인할 수 없습니다. 잠시 후 다시 시도해 주세요.";
+    }
+    return normalized;
+  }
+
   async function apiRequest(path, options = {}, allowRefresh = true) {
-    const response = await fetch(`${apiConfig.baseUrl}${path}`, {
-      credentials: "include",
-      ...options,
-      headers: { "Content-Type": "application/json", ...(options.headers || {}) }
-    });
-    const contentType = response.headers.get("content-type") || "";
-    const payload = contentType.includes("application/json")
-      ? await response.json()
-      : { message: await response.text() };
+    let response;
+    try {
+      response = await fetchWithTimeout(`${apiConfig.baseUrl}${path}`, {
+        credentials: "include",
+        cache: "no-store",
+        ...options,
+        headers: { "Content-Type": "application/json", ...(options.headers || {}) }
+      }, requestTimeoutMs(path));
+    } catch (error) {
+      throw normalizeRequestError(error, path);
+    }
+    let payload;
+    try {
+      const contentType = response.headers.get("content-type") || "";
+      payload = contentType.includes("application/json")
+        ? await response.json()
+        : { message: await response.text() };
+    } catch (error) {
+      throw normalizeRequestError(error, path);
+    }
     const refreshExcluded = ["/auth/login", "/auth/signup", "/auth/refresh", "/auth/reauth"].includes(path);
     if (response.status === 401 && allowRefresh && !refreshExcluded) {
-      const refreshed = await fetch(`${apiConfig.baseUrl}/auth/refresh`, {
-        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }
-      });
+      let refreshed;
+      try {
+        refreshed = await fetchWithTimeout(`${apiConfig.baseUrl}/auth/refresh`, {
+          method: "POST", credentials: "include", cache: "no-store", headers: { "Content-Type": "application/json" }
+        }, 15000);
+      } catch (error) {
+        throw normalizeRequestError(error, "/auth/refresh");
+      }
       if (refreshed.ok) return apiRequest(path, options, false);
     }
     if (!response.ok) {
       const error = new Error(payload.message || `요청에 실패했습니다. (HTTP ${response.status})`);
       error.status = response.status;
+      // Gateway timeout/5xx may occur after the backend has already charged and
+      // persisted an AI result. Treat these as recoverable network failures so
+      // the caller refreshes learning state before showing the final message.
+      error.network = response.status >= 502;
       throw error;
     }
     return payload;
+  }
+
+  async function handleAiRequestError(error) {
+    if (!error?.network || !apiConfig.enabled) {
+      toast(error.message);
+      return;
+    }
+    try {
+      await loadLearningState();
+      updateUI();
+    } catch (_) {
+      // 응답이 끊긴 경우에도 저장 상태 확인을 시도한 뒤 원래 오류를 안내합니다.
+    }
+    toast(`${error.message} 저장된 결과를 확인했습니다.`);
   }
 
   async function loadAiState() {
@@ -879,8 +973,10 @@
       $("#aiDailyLimit").textContent = dailyLimit.toLocaleString("ko-KR");
       $("#aiQuotaBar").style.width = `${boundedPercent}%`;
       $("#aiTokenChipValue").textContent = `${remaining.toLocaleString("ko-KR")} / ${dailyLimit.toLocaleString("ko-KR")}`;
+      $("#aiTokenChipPercent").textContent = `${boundedPercent}%`;
       $("#aiTokenChipBar").style.width = `${boundedPercent}%`;
       $(".ai-token-chip-track").setAttribute("aria-valuenow", String(boundedPercent));
+      $(".ai-token-chip-track").setAttribute("aria-valuetext", `${boundedPercent}% 남음`);
       $("#aiTokenChip").title = `오늘 AI 토큰 ${remaining.toLocaleString("ko-KR")} / ${dailyLimit.toLocaleString("ko-KR")} 남음`;
       $("#aiQuotaStatus").textContent = preference.enabled ? `오늘 ${Number(quota.usedToday).toLocaleString("ko-KR")} 토큰 사용` : "동의 후 AI 기능 사용 가능";
     } else {
@@ -888,8 +984,10 @@
       $("#aiDailyLimit").textContent = "-";
       $("#aiQuotaBar").style.width = "0%";
       $("#aiTokenChipValue").textContent = "- / -";
+      $("#aiTokenChipPercent").textContent = "-%";
       $("#aiTokenChipBar").style.width = "0%";
       $(".ai-token-chip-track").setAttribute("aria-valuenow", "0");
+      $(".ai-token-chip-track").setAttribute("aria-valuetext", "확인할 수 없음");
       $("#aiQuotaStatus").textContent = apiConfig.enabled ? "AI 상태 확인 필요" : "데모 모드";
     }
     $("#aiSettingsButton").textContent = preference.enabled ? "AI 설정 변경" : "AI 사용 설정";
@@ -1061,7 +1159,7 @@
         toast(`${subjectName(code)} AI 학습 플랜을 만들었어요.`);
         $("#todayPlanTitle").scrollIntoView({ behavior: "smooth", block: "center" });
       } catch (error) {
-        toast(error.message);
+        await handleAiRequestError(error);
       } finally {
         setAiLoading(false);
         button.disabled = !hasCompleteProfile();
@@ -1090,7 +1188,7 @@
         updateUI();
         toast(generated.fallback ? "기본 재학습 추천을 준비했습니다." : "AI 재학습 추천을 생성했습니다.");
       } catch (error) {
-        toast(error.message);
+        await handleAiRequestError(error);
       } finally {
         setAiLoading(false);
         button.disabled = !hasCompleteProfile();
@@ -1132,7 +1230,8 @@
         renderQuestion();
         openModal("quizModal");
       } catch (error) {
-        toast(error.message);
+        if (useAi) await handleAiRequestError(error);
+        else toast(error.message);
       } finally {
         if (useAi) setAiLoading(false);
         button.disabled = !hasCompleteProfile() || !state.quizSubjectCode;
@@ -1897,7 +1996,7 @@
           updateUI();
           toast(generated.fallback ? "기본 오답 해설을 준비했습니다." : "AI 맞춤 오답 해설을 생성했습니다.");
         } catch (error) {
-          toast(error.message);
+          await handleAiRequestError(error);
         } finally {
           setAiLoading(false);
           aiFeedbackAction.disabled = false;
