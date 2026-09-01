@@ -169,16 +169,16 @@
     if (!normalized) return '<p class="plan-step-summary">학습 내용을 준비하고 있습니다.</p>';
 
     const lines = normalized
-      // AI가 `1)`, `1.`, `①` 또는 실제 줄바꿈을 섞어 반환해도
-      // 각 실습 행동을 별도 목록 항목으로 표시한다.
-      .replace(/[\s\u00a0]+(?=(?:\d{1,2}[.)]|[①-⑳])\s*)/g, "\n")
+      // 목록 번호는 `1. `, `1) `, `① `처럼 마커 뒤에 공백이 있을 때만 인식한다.
+      // `8.8.8.8`, `1.1.1.1`, 버전 `1.35.4`는 숫자 목록이 아니므로 중간에서 나누지 않는다.
+      .replace(/[\s\u00a0]+(?=(?:\d{1,2}[.)]|[①-⑳])[\s\u00a0]+)/g, "\n")
       .split(/\n+/)
       .map(value => value.trim())
       .filter(Boolean);
     const intro = [];
     const actions = [];
     lines.forEach(line => {
-      const numbered = line.match(/^(?:\d{1,2}[.)]|[①-⑳])\s*(.+)$/s);
+      const numbered = line.match(/^(?:\d{1,2}[.)]|[①-⑳])[\s\u00a0]+(.+)$/s);
       if (numbered) actions.push(numbered[1].trim());
       else if (actions.length) actions[actions.length - 1] = `${actions[actions.length - 1]} ${line}`.trim();
       else intro.push(line);
@@ -620,7 +620,7 @@
     clearTimeout(toastTimer);
     $("#toastMessage").textContent = message;
     $("#toast").classList.add("show");
-    toastTimer = setTimeout(() => $("#toast").classList.remove("show"), 2800);
+    toastTimer = setTimeout(() => $("#toast").classList.remove("show"), 6000);
   }
 
   function isAiRequest(path) {
@@ -1027,6 +1027,12 @@
     $("#aiTokenChip").hidden = !state.authenticated;
     const quota = state.ai.quota;
     const preference = state.ai.preferences || defaultState.ai.preferences;
+    const averageLabels = {
+      PLAN: "학습 플랜",
+      QUESTION_DRAFT: "AI 문제",
+      WRONG_FEEDBACK: "오답 해설",
+      WEEKLY_INSIGHT: "재학습 추천"
+    };
     if (quota) {
       const remaining = Number(quota.remainingToday || 0);
       const dailyLimit = Number(quota.dailyLimit || 0);
@@ -1043,6 +1049,15 @@
       $(".ai-token-chip-track").setAttribute("aria-valuetext", `${remaining.toLocaleString("ko-KR")} / ${dailyLimit.toLocaleString("ko-KR")} 남음`);
       $("#aiTokenChip").title = `오늘 AI 토큰 ${remaining.toLocaleString("ko-KR")} / ${dailyLimit.toLocaleString("ko-KR")} 남음`;
       $("#aiQuotaStatus").textContent = preference.enabled ? `오늘 ${Number(quota.usedToday).toLocaleString("ko-KR")} 토큰 사용` : "동의 후 AI 기능 사용 가능";
+      const averages = new Map((quota.featureAverages || []).map(item => [item.feature, item]));
+      $("#aiTokenAverageList").innerHTML = Object.entries(averageLabels).map(([feature, label]) => {
+        const average = averages.get(feature);
+        const value = average
+          ? `평균 ${Number(average.averageTokens).toLocaleString("ko-KR")}`
+          : "기록 없음";
+        const title = average ? `성공 요청 ${average.sampleCount}건 기준` : "성공한 사용 기록이 없습니다.";
+        return `<span class="ai-token-average-item" title="${escapeHtml(title)}"><span>${label}</span><strong>${value}</strong></span>`;
+      }).join("");
     } else {
       $("#aiRemainingTokens").textContent = "-";
       $("#aiDailyLimit").textContent = "-";
@@ -1053,6 +1068,7 @@
       $(".ai-token-chip-track").setAttribute("aria-valuenow", "0");
       $(".ai-token-chip-track").setAttribute("aria-valuetext", "확인할 수 없음");
       $("#aiQuotaStatus").textContent = apiConfig.enabled ? "AI 상태 확인 필요" : "데모 모드";
+      $("#aiTokenAverageList").innerHTML = '<span class="ai-token-average-item">사용 기록 없음</span>';
     }
     $("#aiSettingsButton").textContent = preference.enabled ? "AI 설정 변경" : "AI 사용 설정";
     $("#generateRecommendation").disabled = !state.authenticated || !hasCompleteProfile();

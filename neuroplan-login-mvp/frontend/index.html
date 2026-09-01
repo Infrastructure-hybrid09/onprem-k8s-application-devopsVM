@@ -507,6 +507,11 @@
     .ai-quota-track { height: 7px; margin-top: 9px; overflow: hidden; border-radius: 999px; background: #dfece3; }
     .ai-quota-track span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #5c9e7e, #8bbda2); }
     .ai-quota-foot { margin-top: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 10px; }
+    .ai-token-averages { margin-top: 11px; padding-top: 10px; border-top: 1px solid #d7e8dd; }
+    .ai-token-averages-title { display: block; margin-bottom: 7px; color: #45695a; font-size: 10px; font-weight: 900; }
+    .ai-token-average-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 8px; }
+    .ai-token-average-item { display: flex; justify-content: space-between; gap: 6px; color: var(--muted); font-size: 9px; }
+    .ai-token-average-item strong { color: #315f4c; font-size: 9px; white-space: nowrap; }
     .ai-link-button { padding: 0; border: 0; color: #39705a; background: transparent; cursor: pointer; font: inherit; font-weight: 900; }
     .ai-recommendation-card { margin-top: 16px; }
     .ai-recommendation-result { padding: 17px; border: 1px solid #c8ddd0; border-radius: 16px; background: #f4faf6; }
@@ -999,6 +1004,10 @@
           <div class="ai-quota-top"><span>오늘의 AI 토큰</span><strong><span id="aiRemainingTokens">0</span> / <span id="aiDailyLimit">0</span></strong></div>
           <div class="ai-quota-track" aria-label="AI 토큰 잔여량"><span id="aiQuotaBar" style="width:0%"></span></div>
           <div class="ai-quota-foot"><span id="aiQuotaStatus">AI 기능 설정 전</span><button class="ai-link-button" id="aiSettingsButton" type="button">AI 설정</button></div>
+          <div class="ai-token-averages">
+            <span class="ai-token-averages-title">기능별 평균 토큰 · 성공한 실제 요청 기준</span>
+            <div class="ai-token-average-list" id="aiTokenAverageList"><span class="ai-token-average-item">사용 기록 없음</span></div>
+          </div>
         </div>
         <div class="progress-list" id="subjectProgressList">
           <div class="subject-progress">
