@@ -116,3 +116,6 @@
 ## 0.1.0
 
 - 정적 Frontend와 Spring Boot 회원가입/로그인 MVP 최초 구성
+## Unreleased
+
+- Backend에 Prometheus Actuator endpoint와 `http.server.requests` histogram/백분위 지표를 추가했습니다.

@@ -1,5 +1,9 @@
 # NeuroPlan 학습 MVP 0.8.0
 
+## 최근 변경
+
+- Backend에 `/actuator/prometheus`를 노출하고 `http.server.requests` 요청 지연시간 histogram 및 50/95/99 백분위 지표를 제공합니다.
+
 > 릴리스 상태: 0.8.0 릴리스 후보 — 로컬 정적·반응형 검증 후 On-Prem 통합 테스트 예정 (2026-09-01)
 
 회원가입부터 과목·수준 설정, 오늘 플랜, 3단계 완료, 5문제 진단, 오답·일별 통계까지 MariaDB에 저장하는 최소 학습 서비스입니다. On-Prem Kubernetes에서 먼저 실행한 뒤 ROSA/OpenShift로 옮길 수 있도록 Workload와 진입 리소스를 분리했습니다.
