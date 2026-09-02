@@ -122,23 +122,30 @@
   let adminDeleteTarget = null;
   let accountDetails = null;
   let accountDirty = false;
-  let activePage = "dashboard";
+  const routedPages = new Set(["dashboard", "plan", "quiz", "wrong", "history"]);
+  const requestedPage = window.location.hash.replace(/^#/, "");
+  let activePage = routedPages.has(requestedPage) ? requestedPage : "dashboard";
   let reauthExpiresAt = 0;
   let pendingSecureAction = null;
   let pendingAiAction = null;
   let aiLoadingHideTimer = null;
   let aiLoadingStartedAt = 0;
+  let loadingMinimumDurationMs = 0;
   let refreshSessionPromise = null;
+  let pageRefreshInFlight = false;
   const aiLoadingMinDurationMs = 800;
   const seoulTimeZone = "Asia/Seoul";
 
-  function setAiLoading(active, title = "AI가 학습 내용을 준비하고 있어요") {
+  function setAiLoading(active, title = "AI가 학습 내용을 준비하고 있어요",
+                        message = "보통 수 초, 최대 120초가 걸릴 수 있습니다.",
+                        minimumDurationMs = aiLoadingMinDurationMs) {
     const overlay = $("#aiLoadingOverlay");
     clearTimeout(aiLoadingHideTimer);
     $("#aiLoadingTitle").textContent = title;
-    $("#aiLoadingMessage").textContent = "보통 수 초, 최대 120초가 걸릴 수 있습니다.";
+    $("#aiLoadingMessage").textContent = message;
     if (active) {
       aiLoadingStartedAt = performance.now();
+      loadingMinimumDurationMs = minimumDurationMs;
       overlay.classList.add("is-visible");
       overlay.removeAttribute("aria-hidden");
       document.body.setAttribute("aria-busy", "true");
@@ -150,8 +157,8 @@
       overlay.setAttribute("aria-hidden", "true");
       document.body.setAttribute("aria-busy", "false");
     };
-    if (elapsed < aiLoadingMinDurationMs) {
-      aiLoadingHideTimer = setTimeout(hide, aiLoadingMinDurationMs - elapsed);
+    if (elapsed < loadingMinimumDurationMs) {
+      aiLoadingHideTimer = setTimeout(hide, loadingMinimumDurationMs - elapsed);
       return;
     }
     hide();
@@ -162,6 +169,11 @@
     return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
       setTimeout(resolve, 80);
     })));
+  }
+
+  function showRefreshLoading() {
+    setAiLoading(true, "최신 학습 데이터를 불러오고 있어요", "현재 페이지의 서버 데이터를 새로고침하고 있습니다.", 0);
+    return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   }
 
   function planStepContentHtml(content) {
@@ -399,7 +411,8 @@
     $("#categoryNav").hidden = false;
   }
 
-  async function showPage(page) {
+  async function showPage(page, { updateLocation = true, scroll = true } = {}) {
+    if (!routedPages.has(page) && page !== "account") page = "dashboard";
     if (!state.authenticated && page !== "dashboard") {
       setAuthMode("login");
       openModal("authModal");
@@ -418,7 +431,10 @@
     $$('[data-page]').forEach(button => button.classList.toggle("active", button.dataset.page === page));
     if (page === "history") await loadPlanHistory();
     if (page === "account") updateReauthStatus();
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    if (updateLocation && routedPages.has(page)) {
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${page}`);
+    }
+    if (scroll) window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function loadAccountDetails() {
@@ -847,7 +863,7 @@
     await loadAiState();
   }
 
-  async function loadPlanHistory() {
+  async function loadPlanHistory({ throwOnError = false } = {}) {
     if (!state.authenticated) return;
     try {
       state.planHistory = apiConfig.enabled
@@ -855,7 +871,32 @@
         : state.planHistory;
       renderPlanHistory();
     } catch (error) {
+      if (throwOnError) throw error;
       toast(error.message);
+    }
+  }
+
+  async function refreshCurrentPage() {
+    const buttons = [$("#refreshCurrentPage"), $("#refreshHistory")];
+    if (!state.authenticated || pageRefreshInFlight) return;
+    pageRefreshInFlight = true;
+    buttons.forEach(button => { button.disabled = true; });
+    await showRefreshLoading();
+    try {
+      if (activePage === "account") {
+        await loadAccountDetails();
+      } else {
+        await loadLearningState();
+        if (activePage === "history") await loadPlanHistory({ throwOnError: true });
+      }
+      updateUI();
+      toast("현재 페이지를 최신 데이터로 새로고침했습니다.");
+    } catch (error) {
+      toast(`새로고침하지 못했습니다: ${error.message}`);
+    } finally {
+      setAiLoading(false);
+      pageRefreshInFlight = false;
+      buttons.forEach(button => { button.disabled = !state.authenticated; });
     }
   }
 
@@ -864,6 +905,7 @@
       await detectAdmin();
       renderSubjectChoices();
       updateUI();
+      await showPage(state.authenticated ? activePage : "dashboard", { updateLocation: false, scroll: false });
       return;
     }
     let payload;
@@ -873,6 +915,7 @@
       if (error.status === 401) resetAuthenticatedState();
       else toast(`세션 확인이 지연되고 있습니다: ${error.message}`);
       updateUI();
+      await showPage("dashboard", { updateLocation: true, scroll: false });
       return;
     }
 
@@ -894,6 +937,7 @@
       console.warn("관리자 권한을 확인하지 못했습니다.", error);
     }
     updateUI();
+    await showPage(activePage, { updateLocation: false, scroll: false });
   }
 
   function renderSubjectChoices() {
@@ -985,7 +1029,7 @@
       const activity = (item?.solvedCount || 0) + (item?.completedStepCount || 0);
       const level = activity >= 8 ? 3 : activity >= 4 ? 2 : activity > 0 ? 1 : 0;
       const label = `${key}: 학습량 ${activity}회 (풀이 ${item?.solvedCount || 0}문제, 완료 ${item?.completedStepCount || 0}단계)`;
-      return `<span class="heatmap-cell${level ? ` level-${level}` : ""}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"><strong>${date.getDate()}일</strong><small>${activity}회</small></span>`;
+      return `<span class="heatmap-cell${level ? ` level-${level}` : ""}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"></span>`;
     });
     $("#studyHeatmap").innerHTML = cells.join("");
 
@@ -1079,6 +1123,17 @@
     $("#aiRecommendationResult").innerHTML = recommendation
       ? `<strong>${escapeHtml(recommendation.title)}</strong><p>${escapeHtml(recommendation.content)}</p><div class="ai-recommendation-meta">${escapeHtml(recommendation.subjectName)} · 우선순위 ${recommendation.priority}/5</div>`
       : '<div><strong>아직 생성된 추천이 없습니다.</strong><span>현재 선택한 과목의 추천 생성 버튼을 눌러 주세요.</span></div>';
+  }
+
+  function renderPlanCriteria() {
+    const preference = state.ai.preferences || defaultState.ai.preferences;
+    const styleLabels = { BRIEF: "간단히", DETAILED: "상세히", PRACTICAL: "실습 중심" };
+    const profile = hasCompleteProfile() ? profileLabel() : "과목·수준 설정 전";
+    $("#planCriteriaList").innerHTML = `
+      <li><span>과목·수준</span><strong>${escapeHtml(profile)}</strong></li>
+      <li><span>학습 시간</span><strong>약 ${Number(preference.availableMinutes || 30)}분</strong></li>
+      <li><span>설명 방식</span><strong>${escapeHtml(styleLabels[preference.explanationStyle] || "간단히")}</strong></li>
+      <li><span>결과 구성</span><strong>오늘 수행할 3단계 실습</strong></li>`;
   }
 
   function updateUI() {
@@ -1180,6 +1235,9 @@
     renderPlanHistory();
     renderWrongNotes();
     renderAiFeatures();
+    renderPlanCriteria();
+    $("#refreshCurrentPage").disabled = !state.authenticated || pageRefreshInFlight;
+    $("#refreshHistory").disabled = !state.authenticated || pageRefreshInFlight;
   }
 
   function setAuthMode(mode) {
@@ -1579,11 +1637,17 @@
   });
   $("#adminBackButton").addEventListener("click", showLearningPage);
   $("#adminRefresh").addEventListener("click", async () => {
+    const button = $("#adminRefresh");
+    button.disabled = true;
+    await showRefreshLoading();
     try {
       await loadAdminOverview();
       toast("관리자 데이터를 새로고침했습니다.");
     } catch (error) {
       toast(error.message);
+    } finally {
+      setAiLoading(false);
+      button.disabled = false;
     }
   });
   $("#adminUserSearchForm").addEventListener("submit", async event => {
@@ -1645,7 +1709,8 @@
   $("#adminQuestionCancel").addEventListener("click", resetAdminQuestionForm);
   $("#wrongSubjectFilter").addEventListener("change", renderWrongNotes);
   $("#wrongStatusFilter").addEventListener("change", renderWrongNotes);
-  $("#refreshHistory").addEventListener("click", loadPlanHistory);
+  $("#refreshHistory").addEventListener("click", refreshCurrentPage);
+  $("#refreshCurrentPage").addEventListener("click", refreshCurrentPage);
   $("#reauthForm").addEventListener("submit", async event => {
     event.preventDefault();
     const password = $("#reauthPassword").value;
