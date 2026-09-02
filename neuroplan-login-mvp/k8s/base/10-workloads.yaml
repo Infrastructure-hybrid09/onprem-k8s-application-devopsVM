@@ -18,7 +18,7 @@ data:
   LLM_PROVIDER: CLOUDFLARE
   LLM_BASE_URL: https://api.cloudflare.com/client/v4
   LLM_MODEL: "@cf/qwen/qwen3.8-27b"
-  LLM_PROMPT_VERSION: neuroplan-0.8.0-v1
+  LLM_PROMPT_VERSION: neuroplan-0.8.0-v2
   LLM_MAX_COMPLETION_TOKENS: "1200"
   LLM_DAILY_TOKEN_LIMIT: "20000"
   LLM_CONNECT_TIMEOUT_SECONDS: "5"

@@ -46,7 +46,7 @@ public class CloudflareAiClient {
                         Map.of("role", "user", "content", userPrompt)
                 ),
                 "temperature", 0.1,
-                "reasoning_effort", "low",
+                "chat_template_kwargs", Map.of("enable_thinking", false),
                 "max_completion_tokens", maxCompletionTokens,
                 "response_format", Map.of("type", "json_object"),
                 "stream", false
@@ -73,7 +73,9 @@ public class CloudflareAiClient {
                 throw new AiProviderException("PROVIDER_ERROR", null, message);
             }
             JsonNode result = root.path("result");
-            String content = result.path("choices").path(0).path("message").path("content").asText("");
+            JsonNode choice = result.path("choices").path(0);
+            String content = choice.path("message").path("content").asText("");
+            String finishReason = choice.path("finish_reason").asText("");
             if (content.isBlank()) {
                 throw new AiProviderException("EMPTY_RESPONSE", 200, "Workers AI 응답 내용이 비어 있습니다.");
             }
@@ -84,7 +86,8 @@ public class CloudflareAiClient {
                     usage.path("completion_tokens").asInt(0),
                     usage.path("neurons").isNumber() ? usage.path("neurons").decimalValue() : null,
                     response.headers().firstValue("cf-ray").orElse(null),
-                    status
+                    status,
+                    finishReason
             );
         } catch (AiProviderException exception) {
             throw exception;
@@ -129,9 +132,19 @@ public class CloudflareAiClient {
             int outputTokens,
             BigDecimal usageUnits,
             String providerRequestId,
-            int httpStatus
+            int httpStatus,
+            String finishReason
     ) {
         public int totalTokens() { return inputTokens + outputTokens; }
+
+        public boolean outputLimitReached() {
+            return "length".equalsIgnoreCase(finishReason)
+                    || "max_tokens".equalsIgnoreCase(finishReason);
+        }
+
+        public boolean completedNormally() {
+            return finishReason == null || finishReason.isBlank() || "stop".equalsIgnoreCase(finishReason);
+        }
     }
 
     public static class AiProviderException extends RuntimeException {

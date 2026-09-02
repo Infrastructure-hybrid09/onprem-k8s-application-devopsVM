@@ -12,7 +12,7 @@ public class AiProperties {
     private String accountId = "";
     private String apiKey = "";
     private String model = "@cf/qwen/qwen3.8-27b";
-    private String promptVersion = "neuroplan-0.8.0-v1";
+    private String promptVersion = "neuroplan-0.8.0-v2";
     private int maxCompletionTokens = 1200;
     private int quizMaxCompletionTokens = 2200;
     private int dailyTokenLimit = 20000;

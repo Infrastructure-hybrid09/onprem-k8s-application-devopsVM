@@ -62,6 +62,7 @@ public class AiGenerationService {
         try {
             AiProviderResponse response = client.generateJson(systemPrompt, userPrompt);
             try {
+                requireCompleteResponse(response);
                 PlanContent content = parsePlan(response.content(), subjectName, levelLabel);
                 String outputJson = objectMapper.writeValueAsString(content);
                 completeRun(runId, "SUCCEEDED", response, startedAt, outputJson, null, null);
@@ -69,13 +70,14 @@ public class AiGenerationService {
                         userId, runId, response.inputTokens(), response.outputTokens(), response.usageUnits());
                 return new PlanGeneration(runId, false, content, quota);
             } catch (RuntimeException | JsonProcessingException invalid) {
+                String errorCode = invalidOutputCode(response);
                 PlanContent fallback = fallbackPlan(subjectName, levelLabel);
                 String outputJson = writeJson(fallback);
                 completeRun(runId, "FALLBACK", response, startedAt, outputJson,
-                        "INVALID_JSON", "AI 응답 형식이 맞지 않아 기본 플랜을 사용했습니다.");
+                        errorCode, invalidOutputMessage(response, "플랜"));
                 AiQuotaResponse quota = quotaService.recordRefundedUsage(
                         userId, runId, response.inputTokens(), response.outputTokens(), response.usageUnits(),
-                        "INVALID_JSON 플랜 응답 환불");
+                        errorCode + " 플랜 응답 환불");
                 return new PlanGeneration(runId, true, fallback, quota);
             }
         } catch (AiProviderException exception) {
@@ -102,6 +104,7 @@ public class AiGenerationService {
         try {
             AiProviderResponse response = client.generateJson(systemPrompt, userPrompt);
             try {
+                requireCompleteResponse(response);
                 FeedbackContent content = parseFeedback(response.content());
                 String outputJson = objectMapper.writeValueAsString(content);
                 completeRun(runId, "SUCCEEDED", response, startedAt, outputJson, null, null);
@@ -109,7 +112,8 @@ public class AiGenerationService {
                         userId, runId, response.inputTokens(), response.outputTokens(), response.usageUnits());
                 return new FeedbackGeneration(runId, false, content, quota);
             } catch (RuntimeException | JsonProcessingException invalid) {
-                return fallbackFeedback(userId, runId, context, response, startedAt, "INVALID_JSON");
+                return fallbackFeedback(userId, runId, context, response, startedAt,
+                        invalidOutputCode(response));
             }
         } catch (AiProviderException exception) {
             FeedbackContent content = basicFeedback(context);
@@ -134,6 +138,7 @@ public class AiGenerationService {
         try {
             AiProviderResponse response = client.generateJson(systemPrompt, userPrompt);
             try {
+                requireCompleteResponse(response);
                 RecommendationContent content = parseRecommendation(response.content(), context.subjectName());
                 String outputJson = objectMapper.writeValueAsString(content);
                 completeRun(runId, "SUCCEEDED", response, startedAt, outputJson, null, null);
@@ -141,7 +146,8 @@ public class AiGenerationService {
                         userId, runId, response.inputTokens(), response.outputTokens(), response.usageUnits());
                 return new RecommendationGeneration(runId, false, content, quota);
             } catch (RuntimeException | JsonProcessingException invalid) {
-                return fallbackRecommendation(userId, runId, context, response, startedAt, "INVALID_JSON");
+                return fallbackRecommendation(userId, runId, context, response, startedAt,
+                        invalidOutputCode(response));
             }
         } catch (AiProviderException exception) {
             RecommendationContent content = basicRecommendation(context);
@@ -171,6 +177,7 @@ public class AiGenerationService {
             AiProviderResponse response = client.generateJson(
                     systemPrompt, userPrompt, properties.getQuizMaxCompletionTokens());
             try {
+                requireCompleteResponse(response);
                 QuizContent content = parseQuiz(response.content(), subjectName, levelLabel, count);
                 String outputJson = objectMapper.writeValueAsString(content);
                 completeRun(runId, "SUCCEEDED", response, startedAt, outputJson, null, null);
@@ -178,12 +185,13 @@ public class AiGenerationService {
                         userId, runId, response.inputTokens(), response.outputTokens(), response.usageUnits());
                 return new QuizGeneration(runId, false, content, quota);
             } catch (RuntimeException | JsonProcessingException invalid) {
+                String errorCode = invalidOutputCode(response);
                 QuizContent fallback = fallbackQuiz(subjectName, levelLabel, count);
                 completeRun(runId, "FALLBACK", response, startedAt, writeJson(fallback),
-                        "INVALID_JSON", "AI 문제 형식이 맞지 않아 검증된 기본 문제를 사용했습니다.");
+                        errorCode, invalidOutputMessage(response, "문제"));
                 AiQuotaResponse quota = quotaService.recordRefundedUsage(
                         userId, runId, response.inputTokens(), response.outputTokens(), response.usageUnits(),
-                        "INVALID_JSON 문제 응답 환불");
+                        errorCode + " 문제 응답 환불");
                 return new QuizGeneration(runId, true, fallback, quota);
             }
         } catch (AiProviderException exception) {
@@ -245,7 +253,7 @@ public class AiGenerationService {
                                                   AiProviderResponse response, Instant startedAt, String code) {
         FeedbackContent content = basicFeedback(context);
         completeRun(runId, "FALLBACK", response, startedAt, writeJson(content), code,
-                "AI 응답 형식이 맞지 않아 기본 오답 해설을 사용했습니다.");
+                invalidOutputMessage(response, "오답 해설"));
         AiQuotaResponse quota = quotaService.recordRefundedUsage(
                 userId, runId, response.inputTokens(), response.outputTokens(), response.usageUnits(),
                 code + " 오답 해설 응답 환불");
@@ -256,11 +264,34 @@ public class AiGenerationService {
                                                               AiProviderResponse response, Instant startedAt, String code) {
         RecommendationContent content = basicRecommendation(context);
         completeRun(runId, "FALLBACK", response, startedAt, writeJson(content), code,
-                "AI 응답 형식이 맞지 않아 기본 재학습 추천을 사용했습니다.");
+                invalidOutputMessage(response, "재학습 추천"));
         AiQuotaResponse quota = quotaService.recordRefundedUsage(
                 userId, runId, response.inputTokens(), response.outputTokens(), response.usageUnits(),
                 code + " 재학습 추천 응답 환불");
         return new RecommendationGeneration(runId, true, content, quota);
+    }
+
+    private void requireCompleteResponse(AiProviderResponse response) {
+        if (!response.completedNormally()) {
+            throw new IllegalArgumentException("Workers AI completion ended with finish_reason="
+                    + response.finishReason());
+        }
+    }
+
+    private String invalidOutputCode(AiProviderResponse response) {
+        if (response.outputLimitReached()) return "OUTPUT_LIMIT";
+        return response.completedNormally() ? "INVALID_JSON" : "PROVIDER_FINISH";
+    }
+
+    private String invalidOutputMessage(AiProviderResponse response, String featureName) {
+        if (response.outputLimitReached()) {
+            return "AI " + featureName + " 응답이 출력 토큰 한도에서 종료되어 검증된 기본 결과를 사용했습니다.";
+        }
+        if (!response.completedNormally()) {
+            return "AI " + featureName + " 응답이 finish_reason=" + response.finishReason()
+                    + " 상태로 종료되어 검증된 기본 결과를 사용했습니다.";
+        }
+        return "AI " + featureName + " 응답 형식이 맞지 않아 검증된 기본 결과를 사용했습니다.";
     }
 
     private long startRun(long userId, Long subjectId, String requestType, String input) {
