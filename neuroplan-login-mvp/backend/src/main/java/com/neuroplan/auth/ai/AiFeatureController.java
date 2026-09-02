@@ -99,7 +99,7 @@ public class AiFeatureController {
     @PostMapping("/questions")
     public AiQuizResponse generateQuestions(
             @RequestParam String subjectCode,
-            @RequestParam(defaultValue = "5") int count,
+            @RequestParam(defaultValue = "3") int count,
             HttpServletRequest request
     ) {
         UserRecord user = currentUserService.require(request);

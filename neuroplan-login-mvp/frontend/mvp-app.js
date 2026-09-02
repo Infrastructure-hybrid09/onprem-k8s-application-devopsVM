@@ -1221,7 +1221,7 @@
     $("#aiQuizButton").disabled = !hasProfile || !state.quizSubjectCode;
     $("#quizGuide").textContent = state.quizFinished
       ? "최근 문제은행 결과가 대시보드에 반영되었습니다. 기존 문제 또는 AI 새 문제를 다시 풀 수 있어요."
-      : "플랜 체크 여부와 관계없이 기존 문제은행 또는 AI가 새로 만든 5문제를 풀 수 있습니다.";
+      : "플랜 체크 여부와 관계없이 기존 문제은행 5문제 또는 AI가 새로 만든 3문제를 풀 수 있습니다.";
 
     if (!state.authenticated) $("#mainAction").textContent = "회원가입하고 시작하기";
     else if (!hasProfile) $("#mainAction").textContent = "과목·수준 설정하기";
@@ -1341,10 +1341,10 @@
     const run = async () => {
       const button = useAi ? $("#aiQuizButton") : $("#quizButton");
       button.disabled = true;
-      if (useAi) await showAiLoading(`AI가 ${subjectName(code)} 확인 문제 5개를 만들고 있어요`);
+      if (useAi) await showAiLoading(`AI가 ${subjectName(code)} 확인 문제 3개를 만들고 있어요`);
       try {
         if (useAi && apiConfig.enabled) {
-          const generated = await apiRequest(`/ai/questions?subjectCode=${encodeURIComponent(code)}&count=5`, { method: "POST" });
+          const generated = await apiRequest(`/ai/questions?subjectCode=${encodeURIComponent(code)}&count=3`, { method: "POST" });
           questions = generated.questions.map(question => ({
             ...question,
             id: question.questionNo,

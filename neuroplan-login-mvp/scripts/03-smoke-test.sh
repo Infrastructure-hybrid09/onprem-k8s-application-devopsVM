@@ -155,8 +155,8 @@ curl_request -ksS --fail -b "$COOKIE_JAR" "$BASE_URL/api/learning/plans/history?
 
 echo "===== AI wrong feedback / recommendation / remaining tokens ====="
 curl_request -ksS --fail -b "$COOKIE_JAR" -X POST \
-  "$BASE_URL/api/ai/questions?subjectCode=LINUX&count=5" | tee "$AI_QUIZ_FILE" | jq -e \
-  '.generationRunId > 0 and .fallback == false and (.questions | length) == 5 and all(.questions[]; (.options | length) == 4)'
+  "$BASE_URL/api/ai/questions?subjectCode=LINUX&count=3" | tee "$AI_QUIZ_FILE" | jq -e \
+  '.generationRunId > 0 and .fallback == false and (.questions | length) == 3 and all(.questions[]; (.options | length) == 4)'
 AI_QUIZ_RUN_ID="$(jq -er '.generationRunId' "$AI_QUIZ_FILE")"
 AI_QUIZ_QUESTION_NO="$(jq -er '.questions[0].questionNo' "$AI_QUIZ_FILE")"
 AI_QUIZ_OPTION_NO="$(jq -er '.questions[0].options[0].optionNo' "$AI_QUIZ_FILE")"
