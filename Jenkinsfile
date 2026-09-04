@@ -9,8 +9,8 @@ pipeline {
     environment {
         APP_DIR = 'neuroplan-login-mvp'
 
-        FRONTEND_IMAGE = '192.168.34.21:5000/neuroplan/frontend'
-        BACKEND_IMAGE  = '192.168.34.21:5000/neuroplan/backend'
+        FRONTEND_IMAGE = 'harbor.nplan.local:80/neuroplan/frontend'
+        BACKEND_IMAGE  = 'harbor.nplan.local:80/neuroplan/backend'
 
         KUSTOMIZATION_ONPREM = 'neuroplan-login-mvp/k8s/onprem/kustomization.yaml'
         KUSTOMIZATION_DR     = 'neuroplan-login-mvp/k8s/dr/kustomization.yaml'
@@ -90,6 +90,33 @@ pipeline {
                 }
             }
         }
+
+
+        stage('Harbor Login') {
+            when {
+                expression {
+                    env.FRONTEND_CHANGED == 'true' ||
+                    env.BACKEND_CHANGED == 'true'
+                }
+            }
+
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'harbor-registry',
+                        usernameVariable: 'HARBOR_USER',
+                        passwordVariable: 'HARBOR_PASSWORD'
+                    )
+                ]) {
+                    sh '''
+                        set -eu
+
+                        echo "$HARBOR_PASSWORD" | docker login harbor.nplan.local:80 -u "$HARBOR_USER" --password-stdin
+                    '''
+                }
+            }
+        }
+
 
 
         stage('Build Frontend') {

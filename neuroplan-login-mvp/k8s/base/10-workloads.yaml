@@ -49,7 +49,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: frontend
-          image: 192.168.34.21:5000/neuroplan/frontend
+          image: harbor.nplan.local:80/neuroplan/frontend
           imagePullPolicy: Always
           ports:
             - name: http
@@ -126,7 +126,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: backend
-          image: 192.168.34.21:5000/neuroplan/backend
+          image: harbor.nplan.local:80/neuroplan/backend
           imagePullPolicy: Always
           envFrom:
             - configMapRef:

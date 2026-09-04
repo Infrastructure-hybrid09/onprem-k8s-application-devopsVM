@@ -1,4 +1,4 @@
-FROM 192.168.34.21:5000/neuroplan/nginx:1.28-alpine
+FROM harbor.nplan.local:80/neuroplan/nginx:1.28-alpine
 
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY index.html /usr/share/nginx/html/index.html

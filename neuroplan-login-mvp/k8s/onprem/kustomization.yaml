@@ -8,8 +8,8 @@ resources:
   - 20-httproute.yaml
 
 images:
-  - name: 192.168.34.21:5000/neuroplan/frontend
+  - name: harbor.nplan.local:80/neuroplan/frontend
     newTag: "ff1a436"
 
-  - name: 192.168.34.21:5000/neuroplan/backend
+  - name: harbor.nplan.local:80/neuroplan/backend
     newTag: "1873ea3"
