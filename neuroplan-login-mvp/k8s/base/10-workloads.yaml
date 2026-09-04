@@ -42,6 +42,8 @@ spec:
         app.kubernetes.io/name: neuroplan-frontend
         app.kubernetes.io/part-of: neuroplan-login-mvp
     spec:
+      imagePullSecrets:
+        - name: harbor-pull-secret
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
@@ -119,6 +121,8 @@ spec:
         app.kubernetes.io/name: neuroplan-backend
         app.kubernetes.io/part-of: neuroplan-login-mvp
     spec:
+      imagePullSecrets:
+        - name: harbor-pull-secret
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
