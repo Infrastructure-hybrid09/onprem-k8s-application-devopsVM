@@ -359,7 +359,7 @@ PY
 
                         git push \
                           "$APP_REPO_SSH" \
-                          HEAD:harbor-migration
+                          HEAD:main
                     '''
                 }
             }

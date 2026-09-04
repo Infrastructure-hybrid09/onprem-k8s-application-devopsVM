@@ -3,4 +3,3 @@ window.NEUROPLAN_API = {
   enabled: true,
   baseUrl: "/api"
 };
-
