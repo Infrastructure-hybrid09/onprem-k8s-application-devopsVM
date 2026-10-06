@@ -65,6 +65,9 @@ management:
       group:
         readiness:
           include: readinessState,db,deploymentSafety
+        # Route 53/DR 전환 판단용: DB 연결 상태와 분리한다.
+        routing:
+          include: livenessState,deploymentSafety
   metrics:
     distribution:
       percentiles-histogram:
